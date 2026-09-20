@@ -130,9 +130,9 @@ tr.user.active td{background:#FFF6C2}
   <div class="grid">
     <div class="paper torn panel">
       <h2>Users</h2>
-      <p class="soft sub">Click a name to see only their runs.</p>
+      <p class="soft sub">Everyone who has entered their name. Click a name to see only their runs.</p>
       <div class="scroll"><table>
-        <thead><tr><th>Name</th><th class="r">Runs</th><th class="r">Total</th><th class="r hide-sm">Average</th><th class="r hide-sm">Last used</th></tr></thead>
+        <thead><tr><th>Name</th><th class="r hide-sm" title="Days they opened or used the tool">Days used</th><th class="r">Runs</th><th class="r">Total</th><th class="r hide-sm">Last seen</th></tr></thead>
         <tbody id="usersBody"></tbody>
       </table></div>
     </div>
@@ -165,7 +165,7 @@ const money = n => Number(n || 0).toLocaleString('en-US', { minimumFractionDigit
 const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const when = d => d.toLocaleString(undefined, { day:'numeric', month:'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric', hour:'2-digit', minute:'2-digit' });
 
-let session = null, runs = [], userFilter = null, shown = 50;
+let session = null, runs = [], visits = [], userFilter = null, shown = 50;
 
 /* ---------- auth (Supabase REST, no library needed) ---------- */
 function saveSession(s){ session = s; try { s ? localStorage.setItem(SESSION_KEY, JSON.stringify(s)) : localStorage.removeItem(SESSION_KEY); } catch {} }
@@ -187,25 +187,32 @@ async function validToken(){
 }
 
 /* ---------- data ---------- */
-async function fetchRuns(){
+async function fetchTable(table, cols){
   const token = await validToken();
   const all = [], page = 1000;
   for (let from = 0; ; from += page){
-    const res = await fetch(`${SB_URL}/rest/v1/runs?select=id,created_at,user_name,total,food,delivery,vat,people,items,source&order=created_at.desc`, {
+    const res = await fetch(`${SB_URL}/rest/v1/${table}?select=${cols}&order=created_at.desc`, {
       headers: { apikey: SB_KEY, Authorization: 'Bearer ' + token, 'Range-Unit': 'items', Range: `${from}-${from + page - 1}` }
     });
-    if (!res.ok){ const e = new Error('Could not load runs (' + res.status + ')'); e.status = res.status; throw e; }
+    if (!res.ok){ const e = new Error('Could not load ' + table + ' (' + res.status + ')'); e.status = res.status; throw e; }
     const rows = await res.json();
     all.push(...rows);
     if (rows.length < page) break;
   }
   return all.map(r => ({ ...r, date: new Date(r.created_at), total: Number(r.total) || 0, name: String(r.user_name || 'Unknown').trim() }));
 }
+const fetchRuns = () => fetchTable('runs', 'id,created_at,user_name,total,food,delivery,vat,people,items,source');
+let visitsMissing = false;
+async function fetchVisits(){
+  try { visitsMissing = false; return await fetchTable('visits', 'id,created_at,user_name,kind'); }
+  catch (e) { if (e.status === 404){ visitsMissing = true; return []; } throw e; }
+}
 async function load(){
   $('refreshBtn').disabled = true; $('status').textContent = 'Loading…';
   try {
-    runs = await fetchRuns();
-    $('status').textContent = `Signed in as ${session.email || 'owner'}. Updated ${new Date().toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' })}.`;
+    [runs, visits] = await Promise.all([fetchRuns(), fetchVisits()]);
+    $('status').textContent = `Signed in as ${session.email || 'owner'}. Updated ${new Date().toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' })}.`
+      + (visitsMissing ? ' The visits table is missing, so only people who finished a bill are listed.' : '');
     render();
   } catch (e) {
     if (e.status === 401 || e.status === 400 || e.status === 403){ signOut('Your session expired. Sign in again.'); return; }
@@ -230,17 +237,23 @@ function render(){
   const total = list.reduce((a, r) => a + r.total, 0);
   // group users case-insensitively, show the most recent spelling
   const users = new Map();
-  for (const r of list){
+  const touch = r => {
     const k = key(r.name);
-    if (!users.has(k)) users.set(k, { k, name: r.name, runs: 0, total: 0, last: r.date, spell: {} });
-    const u = users.get(k); u.runs++; u.total += r.total; if (r.date > u.last) u.last = r.date;
+    if (!users.has(k)) users.set(k, { k, name: r.name, runs: 0, total: 0, last: r.date, first: r.date, days: new Set(), spell: {} });
+    const u = users.get(k);
+    if (r.date > u.last) u.last = r.date;
+    if (r.date < u.first) u.first = r.date;
+    u.days.add(dayKey(r.date));
     u.spell[r.name] = (u.spell[r.name] || 0) + 1;
-  }
+    return u;
+  };
+  for (const r of list){ const u = touch(r); u.runs++; u.total += r.total; }
+  for (const v of visits) if (inPeriod(v.date)) touch(v);
   // show the spelling used most often (e.g. "Majed" rather than a one-off "majed")
   for (const u of users.values()) u.name = Object.entries(u.spell).sort((a, b) => b[1] - a[1])[0][0];
-  const allUsers = [...new Map(runs.map(r => [key(r.name), 1])).keys()].sort();
+  const allUsers = [...new Map(runs.concat(visits).map(r => [key(r.name), 1])).keys()].sort();
   const colorOf = k => COLORS[Math.max(0, allUsers.indexOf(k)) % COLORS.length];
-  const ul = [...users.values()].sort((a, b) => b.runs - a.runs || b.total - a.total);
+  const ul = [...users.values()].sort((a, b) => b.runs - a.runs || b.total - a.total || b.last - a.last);
 
   $('sAmount').textContent = money(total);
   $('sRuns').textContent = list.length.toLocaleString('en-US');
@@ -250,11 +263,11 @@ function render(){
   $('usersBody').innerHTML = ul.length ? ul.map(u => `
     <tr class="user${userFilter === u.k ? ' active' : ''}" data-k="${esc(u.k)}" tabindex="0">
       <td><span class="who"><i class="dot" style="background:${colorOf(u.k)}"></i>${esc(u.name)}</span></td>
+      <td class="r num hide-sm">${u.days.size}</td>
       <td class="r num">${u.runs}</td>
-      <td class="r num">${money(u.total)}</td>
-      <td class="r num hide-sm">${money(u.total / u.runs)}</td>
+      <td class="r num">${u.runs ? money(u.total) : '<span class="soft">–</span>'}</td>
       <td class="r hide-sm soft" style="white-space:nowrap">${esc(u.last.toLocaleDateString(undefined, { day:'numeric', month:'short' }))}</td>
-    </tr>`).join('') : `<tr><td colspan="5" class="empty">${runs.length ? 'No runs in this period.' : "No runs yet. They'll appear here once someone finishes a bill."}</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="5" class="empty">${runs.length || visits.length ? 'Nobody used the tool in this period.' : "Nobody yet. People appear here once they open the tool and enter their name."}</td></tr>`;
   $('usersBody').querySelectorAll('tr.user').forEach(tr => {
     const pick = () => { userFilter = userFilter === tr.dataset.k ? null : tr.dataset.k; shown = 50; render(); };
     tr.onclick = pick; tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pick(); } };
