@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Who ate what? · Bill splitter</title>
+<script defer src="https://cloud.umami.is/script.js" data-website-id="4826e03f-8fb1-47bb-bad9-687cc7d93ea1" data-domains="majedmf.github.io"></script>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧾</text></svg>">
 <style>
 :root{
@@ -61,7 +62,7 @@ button{cursor:pointer}
 .step:first-child .shot{max-width:340px}
 .hello h1{font-size:clamp(2.6rem,6.4vw,4.6rem);line-height:1;letter-spacing:-.035em;font-weight:800;margin:0 0 20px}
 .hello p{font-size:1.15rem;max-width:34ch;margin:0 0 28px}
-.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
+.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
 @media (prefers-color-scheme: dark){ .drop{background:rgba(255,255,255,.05);border-color:#5E6A67} }
 .drop.over{background:rgba(255,228,92,.35);border-color:var(--ink)}
 .drop strong{display:block;font-size:1.1rem;margin-bottom:4px}
@@ -161,6 +162,14 @@ button{cursor:pointer}
 .sumhead h2{margin:0;font-size:clamp(1.8rem,4vw,2.6rem);letter-spacing:-.03em;font-weight:800}
 .foot{margin-top:28px;display:flex;gap:12px;flex-wrap:wrap}
 
+.namegate{max-width:min(420px,92vw);width:100%;background:transparent;overflow:visible;padding:0 0 12px;border:0}
+.namegate::backdrop{background:var(--desk)}
+.namecard{padding:30px 28px 34px;display:grid;gap:14px}
+.namecard h2{margin:0;font-size:1.7rem;line-height:1.15;letter-spacing:-.02em;font-weight:800}
+.namecard input{padding:12px 16px;border-radius:10px;border:1.5px solid #8E9A96;background:#fff;color:var(--ink);font-size:1.05rem}
+.namecard .err{margin:0}
+.namecard .btn{justify-self:start}
+.whoami{margin-left:10px}
 .credit{margin-top:40px;font-size:.8rem;color:var(--ink-soft);text-align:center}
 .credit .ver{opacity:.7;margin-left:6px}
 .mobilebar{display:none}
@@ -328,10 +337,18 @@ dialog button{margin-top:10px}
   <div class="cards" id="sumCards"></div>
   <div class="foot"><button class="btn ghost on-desk" id="restartBtn2">Split another receipt</button></div>
 </section>
-<footer class="credit on-desk">Made by Majed Ibrahim <span class="ver">v1.1</span></footer>
+<footer class="credit on-desk">Made by Majed Ibrahim <span class="ver">v1.2</span><span id="whoami" class="whoami hidden"> <span id="whoName"></span> <button type="button" class="linkish" id="changeName">Change name</button></span></footer>
 </div>
 
 <div class="mobilebar hidden" id="mobilebar"><span id="mbText"></span><button class="btn small" id="mbBtn">See summary</button></div>
+<dialog id="nameDialog" class="namegate" aria-labelledby="nameTitle">
+  <form id="nameForm" class="paper torn namecard" method="dialog">
+    <h2 id="nameTitle">Welcome! What's your name?</h2>
+    <input id="userName" autocomplete="name" maxlength="40" placeholder="Your name" aria-label="Your name">
+    <p id="nameErr" class="err hidden" role="alert">Enter your name to continue.</p>
+    <button class="btn" type="submit">Continue</button>
+  </form>
+</dialog>
 <dialog id="imgDialog"><img id="bigImg" alt="Receipt photo"><button class="btn small" id="closeDlg">Close</button></dialog>
 
 <script>/*! For license information please see tesseract.min.js.LICENSE.txt */
@@ -766,6 +783,51 @@ function show(id){
   window.scrollTo(0, 0);
 }
 
+/* ======================= USER NAME + ANALYTICS ======================= */
+const NAME_KEY = 'whoAteWhat.userName';
+let userName = '';
+try { userName = (localStorage.getItem(NAME_KEY) || '').trim(); } catch {}
+const pending = [];
+let identified = false;
+function flushAnalytics(){
+  if (!window.umami || !userName) return;
+  try {
+    if (!identified){ umami.identify(userName, { name: userName }); identified = true; }
+    while (pending.length){ const [ev, data] = pending.shift(); umami.track(ev, data); }
+  } catch {}
+}
+function track(ev, data){
+  pending.push([ev, { user: userName || 'unknown', ...(data || {}) }]);
+  flushAnalytics();
+}
+// the tracker loads asynchronously (and not at all offline); retry for a while
+let tries = 0; const waitUmami = setInterval(() => { flushAnalytics(); if (window.umami || ++tries > 40) clearInterval(waitUmami); }, 750);
+
+function showWho(){
+  $('whoName').textContent = 'Using as ' + userName + '.';
+  $('whoami').classList.toggle('hidden', !userName);
+}
+function askName(){
+  $('userName').value = userName;
+  $('nameErr').classList.add('hidden');
+  if (!$('nameDialog').open) $('nameDialog').showModal();
+  setTimeout(() => $('userName').focus(), 30);
+}
+$('nameDialog').addEventListener('cancel', e => { if (!userName) e.preventDefault(); });
+$('nameForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const v = $('userName').value.trim().replace(/\s+/g, ' ');
+  if (v.length < 2){ $('nameErr').classList.remove('hidden'); $('userName').focus(); return; }
+  const changed = v !== userName;
+  userName = v;
+  try { localStorage.setItem(NAME_KEY, userName); } catch {}
+  $('nameDialog').close();
+  showWho();
+  if (changed){ identified = false; track('name-set'); }
+  startDemo();
+});
+$('changeName').onclick = askName;
+
 /* ======================= WELCOME ======================= */
 function setTab(how){
   $('tabSplit').setAttribute('aria-selected', !how); $('tabHow').setAttribute('aria-selected', how);
@@ -779,7 +841,8 @@ $('howStart').onclick = () => { setTab(false); window.scrollTo(0, 0); $('pickBtn
 document.querySelector('.tabs').addEventListener('keydown', e => {
   if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){ const how = $('tabHow').getAttribute('aria-selected') !== 'true'; setTab(how); (how ? $('tabHow') : $('tabSplit')).focus(); }
 });
-requestAnimationFrame(() => setTimeout(() => $('demo').classList.add('play'), 250));
+function startDemo(){ requestAnimationFrame(() => setTimeout(() => $('demo').classList.add('play'), 250)); }
+if (userName){ showWho(); startDemo(); } else askName();
 $('pickBtn').addEventListener('click', e => { e.preventDefault(); $('file').click(); });
 $('pickBtn').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); $('file').click(); } });
 $('drop').addEventListener('click', e => { if (!e.target.closest('button,.btn')) $('file').click(); });
@@ -792,7 +855,7 @@ document.addEventListener('paste', e => {
   const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
   if (it) handleFile(it.getAsFile());
 });
-$('manualBtn').addEventListener('click', e => { e.preventDefault(); startWorkspace({ items: [], delivery: null, vat: null }, null, 'Add each item and its price, then tag who had it.'); addItem(true); });
+$('manualBtn').addEventListener('click', e => { e.preventDefault(); track('manual-entry'); startWorkspace({ items: [], delivery: null, vat: null }, null, 'Add each item and its price, then tag who had it.'); addItem(true); });
 // warm up the reader in the background so the first scan is quicker
 setTimeout(() => getWorker().catch(() => {}), 1500);
 
@@ -827,9 +890,11 @@ async function handleFile(file){
     else if (matchesFood(best)) note = null;
     else if (best.food != null) note = `The items I found add up to ${fmt(itemsSum(best))}, but the receipt says food is ${fmt(best.food)}. Check the names and prices against the photo.`;
     else note = 'Double-check the items and prices against the photo before tagging.';
+    track('receipt-scanned', { items: best.items.length, matched: matchesFood(best) });
     startWorkspace(best, img, note);
   } catch (e) {
     console.error(e);
+    track('scan-failed');
     startWorkspace({ items: [], delivery: null, vat: null }, img, "The text reader couldn't run in this browser. You can still type the items in below.");
     addItem(true);
   }
@@ -1031,6 +1096,7 @@ function openSummary(){
       <div class="r big"><span>Total</span><span>${fmt(p.total)}</span></div>
     </div>`).join('');
   show('summary');
+  track('summary-viewed', { people: S.people.length, items: S.items.length });
 }
 function summaryText(){
   const c = compute();
@@ -1053,6 +1119,7 @@ $('copyBtn').onclick = async () => {
   try { await navigator.clipboard.writeText(t); }
   catch { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
   toast('Summary copied');
+  track('summary-copied');
 };
 
 /* ======================= EXPORT AS JPG ======================= */
@@ -1138,6 +1205,7 @@ function exportCanvas(){
 }
 function roundRect(x, a, b, w, h, r){ x.beginPath(); x.moveTo(a+r, b); x.arcTo(a+w, b, a+w, b+h, r); x.arcTo(a+w, b+h, a, b+h, r); x.arcTo(a, b+h, a, b, r); x.arcTo(a, b, a+w, b, r); x.closePath(); }
 $('exportBtn').onclick = () => {
+  track('jpg-exported', { people: S.people.length });
   const cv = exportCanvas();
   const d = new Date(), name = `bill-split-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.jpg`;
   cv.toBlob(async blob => {
