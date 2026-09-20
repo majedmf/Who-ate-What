@@ -62,7 +62,7 @@ button{cursor:pointer}
 .step:first-child .shot{max-width:340px}
 .hello h1{font-size:clamp(2.6rem,6.4vw,4.6rem);line-height:1;letter-spacing:-.035em;font-weight:800;margin:0 0 20px}
 .hello p{font-size:1.15rem;max-width:34ch;margin:0 0 28px}
-.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
+.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
 @media (prefers-color-scheme: dark){ .drop{background:rgba(255,255,255,.05);border-color:#5E6A67} }
 .drop.over{background:rgba(255,228,92,.35);border-color:var(--ink)}
 .drop strong{display:block;font-size:1.1rem;margin-bottom:4px}
@@ -337,7 +337,7 @@ dialog button{margin-top:10px}
   <div class="cards" id="sumCards"></div>
   <div class="foot"><button class="btn ghost on-desk" id="restartBtn2">Split another receipt</button></div>
 </section>
-<footer class="credit on-desk">Made by Majed Ibrahim <span class="ver">v1.2</span><span id="whoami" class="whoami hidden"> <span id="whoName"></span> <button type="button" class="linkish" id="changeName">Change name</button></span></footer>
+<footer class="credit on-desk">Made by Majed Ibrahim <span class="ver">v1.4</span><span id="whoami" class="whoami hidden"> <span id="whoName"></span> <button type="button" class="linkish" id="changeName">Change name</button></span></footer>
 </div>
 
 <div class="mobilebar hidden" id="mobilebar"><span id="mbText"></span><button class="btn small" id="mbBtn">See summary</button></div>
@@ -783,6 +783,38 @@ function show(id){
   window.scrollTo(0, 0);
 }
 
+/* ======================= RUN LOG (Supabase) ======================= */
+// Adds one row per completed bill. The public key can only INSERT; reading needs the owner's login.
+const SB_URL = 'https://nskrnxqzehpxfnlqpraq.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5za3JueHF6ZWhweGZubHFwcmFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4OTQ2OTUsImV4cCI6MjEwNTQ3MDY5NX0.BnjMt24G2HfKhZY5uPPBi23nP9HoBeTmG1JMDi-qy08';
+const QUEUE_KEY = 'whoAteWhat.unsentRuns';
+function readQueue(){ try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } }
+function writeQueue(q){ try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q.slice(-50))); } catch {} }
+async function postRuns(rows){
+  const res = await fetch(SB_URL + '/rest/v1/runs', {
+    method: 'POST', keepalive: true,
+    headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok){ const e = new Error('Run log failed: ' + res.status); e.status = res.status; throw e; }
+}
+let flushing = false;
+async function flushRuns(){
+  if (flushing) return;
+  const q = readQueue(); if (!q.length) return;
+  flushing = true;
+  try { await postRuns(q); writeQueue(readQueue().slice(q.length)); }
+  catch (e) { console.warn(e); if ([400, 409, 422].includes(e.status)) writeQueue(readQueue().slice(q.length)); } // bad data: don't retry forever
+  finally { flushing = false; }
+}
+function saveRun(row){
+  // keep the time the bill was actually finished, even if it's sent later (e.g. used offline)
+  const q = readQueue(); q.push({ ...row, created_at: new Date().toISOString() }); writeQueue(q);
+  flushRuns();
+}
+window.addEventListener('online', flushRuns);
+setTimeout(flushRuns, 3000);
+
 /* ======================= USER NAME + ANALYTICS ======================= */
 const NAME_KEY = 'whoAteWhat.userName';
 let userName = '';
@@ -890,7 +922,7 @@ async function handleFile(file){
     else if (matchesFood(best)) note = null;
     else if (best.food != null) note = `The items I found add up to ${fmt(itemsSum(best))}, but the receipt says food is ${fmt(best.food)}. Check the names and prices against the photo.`;
     else note = 'Double-check the items and prices against the photo before tagging.';
-    track('receipt-scanned', { items: best.items.length, matched: matchesFood(best) });
+    track('receipt-scanned', { items: best.items.length, matched: matchesFood(best), receiptTotal: best.total != null ? Math.round(best.total * 100) / 100 : 0 });
     startWorkspace(best, img, note);
   } catch (e) {
     console.error(e);
@@ -902,7 +934,8 @@ async function handleFile(file){
 
 /* ======================= WORKSPACE ======================= */
 function startWorkspace(r, img, note){
-  S.items = []; let parent = null;
+  S.source = img ? 'scan' : 'manual';
+  S.items = []; S.reported = false; let parent = null;
   for (const it of r.items){
     const item = { id: uid++, qty: it.qty, name: it.name, note: it.note || '', price: it.price, people: [], follows: null };
     if (it.addon && parent){ item.follows = parent.id; item.parentName = parent.name; }
@@ -1096,7 +1129,22 @@ function openSummary(){
       <div class="r big"><span>Total</span><span>${fmt(p.total)}</span></div>
     </div>`).join('');
   show('summary');
-  track('summary-viewed', { people: S.people.length, items: S.items.length });
+  if (!S.reported){
+    S.reported = true;   // count each bill once, even if they go back and forth
+    const r2 = n => Math.round(n * 100) / 100;
+    const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+    const run = {
+      total: clamp(r2(c.grand), 0, 999999.99),
+      food: clamp(r2(c.foodAll), 0, 999999.99),
+      delivery: clamp(r2(S.delivery), 0, 99999.99),
+      vat: clamp(S.vatOn ? r2(S.vatRate) : 0, 0, 100),
+      people: clamp(S.people.length, 0, 100),
+      items: clamp(S.items.length, 0, 500),
+      source: S.source === 'scan' ? 'scan' : 'manual'
+    };
+    track('bill-completed', run);
+    saveRun({ user_name: (userName || 'Unknown').slice(0, 60), ...run });
+  }
 }
 function summaryText(){
   const c = compute();

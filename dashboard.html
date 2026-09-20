@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Who ate what? · Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+<style>
+:root{
+  --desk:#DCE2DE; --desk-deep:#C8D0CB; --paper:#FFFFFF; --ink:#1E2833; --ink-soft:#5A6571; --rule:#E3E8EB;
+  --bad:#B3261E; --focus:#1F5FD1;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --desk:#1C2226; --desk-deep:#141A1D; --paper:#F4F6F5; }
+  .on-desk{ color:#E6ECEA } .on-desk .soft{ color:#A9B5B2 }
+  .on-desk .btn{ background:#E6ECEA; color:#1E2833 } .on-desk .btn.ghost{ background:transparent; color:#E6ECEA }
+}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;min-height:100vh;background:var(--desk);color:var(--ink);font:16px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:4px}
+.hidden{display:none !important}
+.soft{color:var(--ink-soft)}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+.btn{display:inline-flex;align-items:center;gap:8px;border:0;border-radius:999px;padding:10px 20px;font-weight:650;background:var(--ink);color:#fff}
+.btn:hover{background:#34414F}
+.btn.ghost{background:transparent;color:inherit;box-shadow:inset 0 0 0 1.5px currentColor}
+.btn.small{padding:7px 14px;font-size:.9rem}
+.btn[disabled]{opacity:.6;cursor:progress}
+.paper{background:var(--paper);color:var(--ink);position:relative;filter:drop-shadow(0 10px 12px rgba(20,30,40,.14))}
+.torn{margin-bottom:10px}
+.torn::after{content:"";position:absolute;left:0;right:0;top:100%;height:8px;background:var(--paper);
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='8'%3E%3Cpath d='M0 0h16L8 8z'/%3E%3C/svg%3E") 0 0/16px 8px repeat-x;
+          mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='8'%3E%3Cpath d='M0 0h16L8 8z'/%3E%3C/svg%3E") 0 0/16px 8px repeat-x}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* login */
+#login{min-height:calc(100vh - 60px);display:grid;place-items:center}
+.logincard{width:min(400px,100%);padding:30px 28px 34px;display:grid;gap:12px}
+.logincard h1{margin:0 0 4px;font-size:1.7rem;letter-spacing:-.02em;font-weight:800;line-height:1.15}
+.logincard label{font-weight:600;font-size:.92rem}
+.logincard input{width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #8E9A96;background:#fff;margin-top:4px;font-weight:400}
+.err{color:var(--bad);font-weight:600;margin:0}
+
+/* dashboard */
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:22px}
+.top h1{margin:0;font-size:clamp(1.8rem,4vw,2.6rem);letter-spacing:-.03em;font-weight:800;line-height:1.05}
+.top .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+select{padding:9px 12px;border-radius:999px;border:1.5px solid #8E9A96;background:var(--paper);color:var(--ink);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:30px}
+.stat{padding:18px 20px 20px;border-radius:12px}
+.stat .v{font-size:clamp(1.6rem,3.4vw,2.3rem);font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-top:4px}
+.stat .l{font-weight:600;color:var(--ink-soft);font-size:.92rem}
+.stat.hero{background:#FFE45C}
+.stat.hero .l{color:#4A4520}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:28px;align-items:start}
+.panel{padding:20px 20px 26px}
+.panel h2{margin:0 0 4px;font-size:1.2rem;letter-spacing:-.01em}
+.panel .sub{margin:0 0 12px;font-size:.9rem}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th{text-align:left;font-size:.8rem;color:var(--ink-soft);font-weight:600;padding:8px 8px;border-bottom:1.5px dashed #9AA4AB;white-space:nowrap}
+td{padding:9px 8px;border-bottom:1px solid var(--rule);vertical-align:middle}
+th.r,td.r{text-align:right}
+tr.user{cursor:pointer}
+tr.user:hover td{background:#F4F7F6}
+tr.user.active td{background:#FFF6C2}
+.who{display:inline-flex;align-items:center;gap:8px;font-weight:650}
+.dot{width:12px;height:12px;border-radius:50%;flex:none}
+.pill{display:inline-block;font-size:.75rem;font-weight:650;padding:1px 8px;border-radius:999px;background:#EEF1F3;color:var(--ink-soft)}
+.filterbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 10px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:0;border-radius:999px;padding:4px 6px 4px 12px;font-weight:650;background:#FFF6C2}
+.chip span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.08)}
+.chart{margin:4px 0 26px}
+.chart svg{display:block;width:100%;height:auto}
+.empty{padding:26px 6px;color:var(--ink-soft)}
+.more{margin-top:12px}
+.foot{margin-top:40px;font-size:.8rem;text-align:center}
+.status{font-size:.85rem}
+@media (max-width: 900px){ .stats{grid-template-columns:repeat(2,minmax(0,1fr))} .grid{grid-template-columns:1fr} }
+@media (max-width: 480px){ .panel{padding:16px 12px 22px} td,th{padding:8px 5px} .hide-sm{display:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<section id="login" class="hidden">
+  <form class="paper torn logincard" id="loginForm">
+    <h1>Who ate what? dashboard</h1>
+    <p class="soft" style="margin:0 0 6px">Sign in with the account you created in Supabase.</p>
+    <label>Email<input type="email" id="email" autocomplete="username" required></label>
+    <label>Password<input type="password" id="password" autocomplete="current-password" required></label>
+    <p id="loginErr" class="err hidden" role="alert"></p>
+    <button class="btn" type="submit" id="loginBtn" style="justify-self:start">Sign in</button>
+  </form>
+</section>
+
+<section id="dash" class="hidden">
+  <div class="top on-desk">
+    <div>
+      <h1>Who ate what? dashboard</h1>
+      <div class="soft status" id="status"></div>
+    </div>
+    <div class="actions">
+      <select id="period" aria-label="Time period">
+        <option value="all">All time</option>
+        <option value="today">Today</option>
+        <option value="7">Last 7 days</option>
+        <option value="30">Last 30 days</option>
+        <option value="month">This month</option>
+      </select>
+      <button class="btn small" id="refreshBtn">Refresh</button>
+      <button class="btn ghost small" id="csvBtn">Download CSV</button>
+      <button class="btn ghost small" id="logoutBtn">Sign out</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat hero"><div class="l">Total amount</div><div class="v num" id="sAmount">0.00</div></div>
+    <div class="stat paper"><div class="l">Total runs</div><div class="v num" id="sRuns">0</div></div>
+    <div class="stat paper"><div class="l">Users</div><div class="v num" id="sUsers">0</div></div>
+    <div class="stat paper"><div class="l">Average bill</div><div class="v num" id="sAvg">0.00</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="paper torn panel">
+      <h2>Users</h2>
+      <p class="soft sub">Click a name to see only their runs.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Name</th><th class="r">Runs</th><th class="r">Total</th><th class="r hide-sm">Average</th><th class="r hide-sm">Last used</th></tr></thead>
+        <tbody id="usersBody"></tbody>
+      </table></div>
+    </div>
+
+    <div class="paper torn panel">
+      <h2>Runs per day</h2>
+      <p class="soft sub" id="chartSub">Last 30 days</p>
+      <div class="chart" id="chart"></div>
+      <h2>Every run</h2>
+      <div class="filterbar" id="filterbar"></div>
+      <div class="scroll"><table>
+        <thead><tr><th>Date</th><th>Name</th><th class="r">Receipt total</th><th class="r hide-sm">People</th><th class="hide-sm">How</th></tr></thead>
+        <tbody id="runsBody"></tbody>
+      </table></div>
+      <button class="btn ghost small more hidden" id="moreBtn">Show more</button>
+    </div>
+  </div>
+  <p class="foot soft on-desk">Made by Majed Ibrahim</p>
+</section>
+</div>
+
+<script>
+const SB_URL = 'https://nskrnxqzehpxfnlqpraq.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5za3JueHF6ZWhweGZubHFwcmFxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4OTQ2OTUsImV4cCI6MjEwNTQ3MDY5NX0.BnjMt24G2HfKhZY5uPPBi23nP9HoBeTmG1JMDi-qy08';
+const SESSION_KEY = 'whoAteWhat.dashSession';
+const COLORS = ['#FFE45C','#FF9EC7','#9BE58F','#8FD3FF','#FFB870','#C9A7FF','#7FE0D0','#F7A59B'];
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const when = d => d.toLocaleString(undefined, { day:'numeric', month:'short', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric', hour:'2-digit', minute:'2-digit' });
+
+let session = null, runs = [], userFilter = null, shown = 50;
+
+/* ---------- auth (Supabase REST, no library needed) ---------- */
+function saveSession(s){ session = s; try { s ? localStorage.setItem(SESSION_KEY, JSON.stringify(s)) : localStorage.removeItem(SESSION_KEY); } catch {} }
+function loadSession(){ try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } }
+async function authRequest(grant, body){
+  const res = await fetch(`${SB_URL}/auth/v1/token?grant_type=${grant}`, {
+    method: 'POST', headers: { apikey: SB_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(data.error_description || data.msg || data.message || 'Sign-in failed'); e.status = res.status; throw e; }
+  return { access_token: data.access_token, refresh_token: data.refresh_token, expires_at: Date.now() + (data.expires_in || 3600) * 1000, email: data.user?.email };
+}
+async function validToken(){
+  if (!session) throw Object.assign(new Error('Signed out'), { status: 401 });
+  if (Date.now() > session.expires_at - 60000){
+    saveSession(await authRequest('refresh_token', { refresh_token: session.refresh_token }));
+  }
+  return session.access_token;
+}
+
+/* ---------- data ---------- */
+async function fetchRuns(){
+  const token = await validToken();
+  const all = [], page = 1000;
+  for (let from = 0; ; from += page){
+    const res = await fetch(`${SB_URL}/rest/v1/runs?select=id,created_at,user_name,total,food,delivery,vat,people,items,source&order=created_at.desc`, {
+      headers: { apikey: SB_KEY, Authorization: 'Bearer ' + token, 'Range-Unit': 'items', Range: `${from}-${from + page - 1}` }
+    });
+    if (!res.ok){ const e = new Error('Could not load runs (' + res.status + ')'); e.status = res.status; throw e; }
+    const rows = await res.json();
+    all.push(...rows);
+    if (rows.length < page) break;
+  }
+  return all.map(r => ({ ...r, date: new Date(r.created_at), total: Number(r.total) || 0, name: String(r.user_name || 'Unknown').trim() }));
+}
+async function load(){
+  $('refreshBtn').disabled = true; $('status').textContent = 'Loading…';
+  try {
+    runs = await fetchRuns();
+    $('status').textContent = `Signed in as ${session.email || 'owner'}. Updated ${new Date().toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' })}.`;
+    render();
+  } catch (e) {
+    if (e.status === 401 || e.status === 400 || e.status === 403){ signOut('Your session expired. Sign in again.'); return; }
+    $('status').textContent = e.message + '. Check your connection and press Refresh.';
+  } finally { $('refreshBtn').disabled = false; }
+}
+
+/* ---------- filters ---------- */
+function inPeriod(d){
+  const p = $('period').value, now = new Date();
+  if (p === 'all') return true;
+  if (p === 'today') return dayKey(d) === dayKey(now);
+  if (p === 'month') return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  const start = new Date(now); start.setHours(0,0,0,0); start.setDate(start.getDate() - (Number(p) - 1));
+  return d >= start;
+}
+const key = n => n.toLowerCase();
+
+/* ---------- render ---------- */
+function render(){
+  const list = runs.filter(r => inPeriod(r.date));
+  const total = list.reduce((a, r) => a + r.total, 0);
+  // group users case-insensitively, show the most recent spelling
+  const users = new Map();
+  for (const r of list){
+    const k = key(r.name);
+    if (!users.has(k)) users.set(k, { k, name: r.name, runs: 0, total: 0, last: r.date, spell: {} });
+    const u = users.get(k); u.runs++; u.total += r.total; if (r.date > u.last) u.last = r.date;
+    u.spell[r.name] = (u.spell[r.name] || 0) + 1;
+  }
+  // show the spelling used most often (e.g. "Majed" rather than a one-off "majed")
+  for (const u of users.values()) u.name = Object.entries(u.spell).sort((a, b) => b[1] - a[1])[0][0];
+  const allUsers = [...new Map(runs.map(r => [key(r.name), 1])).keys()].sort();
+  const colorOf = k => COLORS[Math.max(0, allUsers.indexOf(k)) % COLORS.length];
+  const ul = [...users.values()].sort((a, b) => b.runs - a.runs || b.total - a.total);
+
+  $('sAmount').textContent = money(total);
+  $('sRuns').textContent = list.length.toLocaleString('en-US');
+  $('sUsers').textContent = ul.length.toLocaleString('en-US');
+  $('sAvg').textContent = money(list.length ? total / list.length : 0);
+
+  $('usersBody').innerHTML = ul.length ? ul.map(u => `
+    <tr class="user${userFilter === u.k ? ' active' : ''}" data-k="${esc(u.k)}" tabindex="0">
+      <td><span class="who"><i class="dot" style="background:${colorOf(u.k)}"></i>${esc(u.name)}</span></td>
+      <td class="r num">${u.runs}</td>
+      <td class="r num">${money(u.total)}</td>
+      <td class="r num hide-sm">${money(u.total / u.runs)}</td>
+      <td class="r hide-sm soft" style="white-space:nowrap">${esc(u.last.toLocaleDateString(undefined, { day:'numeric', month:'short' }))}</td>
+    </tr>`).join('') : `<tr><td colspan="5" class="empty">${runs.length ? 'No runs in this period.' : "No runs yet. They'll appear here once someone finishes a bill."}</td></tr>`;
+  $('usersBody').querySelectorAll('tr.user').forEach(tr => {
+    const pick = () => { userFilter = userFilter === tr.dataset.k ? null : tr.dataset.k; shown = 50; render(); };
+    tr.onclick = pick; tr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); pick(); } };
+  });
+
+  const rl = userFilter ? list.filter(r => key(r.name) === userFilter) : list;
+  const fu = userFilter && users.get(userFilter);
+  $('filterbar').innerHTML = userFilter
+    ? `<button class="chip" id="clearFilter" aria-label="Show everyone">${esc(fu ? fu.name : userFilter)} <span aria-hidden="true">×</span></button><span class="soft">${rl.length} runs, ${money(rl.reduce((a, r) => a + r.total, 0))} total</span>`
+    : '';
+  if (userFilter) $('clearFilter').onclick = () => { userFilter = null; shown = 50; render(); };
+
+  $('runsBody').innerHTML = rl.length ? rl.slice(0, shown).map(r => `
+    <tr>
+      <td class="soft" style="white-space:nowrap">${esc(when(r.date))}</td>
+      <td><span class="who"><i class="dot" style="background:${colorOf(key(r.name))}"></i>${esc(r.name)}</span></td>
+      <td class="r num"><strong>${money(r.total)}</strong></td>
+      <td class="r num hide-sm">${r.people ?? ''}</td>
+      <td class="hide-sm"><span class="pill">${r.source === 'scan' ? 'Scanned' : 'Typed'}</span></td>
+    </tr>`).join('') : `<tr><td colspan="5" class="empty">No runs to show.</td></tr>`;
+  $('moreBtn').classList.toggle('hidden', rl.length <= shown);
+
+  drawChart(userFilter ? runs.filter(r => key(r.name) === userFilter) : runs);
+}
+
+function drawChart(src){
+  const days = 30, today = new Date(); today.setHours(0,0,0,0);
+  const buckets = [];
+  for (let i = days - 1; i >= 0; i--){ const d = new Date(today); d.setDate(d.getDate() - i); buckets.push({ d, k: dayKey(d), n: 0 }); }
+  const idx = new Map(buckets.map((b, i) => [b.k, i]));
+  for (const r of src){ const i = idx.get(dayKey(r.date)); if (i != null) buckets[i].n++; }
+  const max = Math.max(1, ...buckets.map(b => b.n));
+  const W = 600, H = 150, pad = 22, bw = (W - 8) / days;
+  const bars = buckets.map((b, i) => {
+    const h = b.n ? Math.max(4, (b.n / max) * (H - pad - 16)) : 2;
+    const x = 4 + i * bw, y = H - pad - h;
+    return `<rect x="${x + 2}" y="${y}" width="${bw - 4}" height="${h}" rx="3" fill="${b.n ? '#1E2833' : '#D5DCE0'}"><title>${b.d.toLocaleDateString(undefined, { day:'numeric', month:'short' })}: ${b.n} run${b.n === 1 ? '' : 's'}</title></rect>`
+      + (b.n ? `<text x="${x + bw/2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="#5A6571">${b.n}</text>` : '');
+  }).join('');
+  const lbl = (i, anchor) => { const d = buckets[i].d, x = anchor === 'start' ? 4 : anchor === 'end' ? W - 4 : 4 + i*bw + bw/2; return `<text x="${x}" y="${H - 5}" text-anchor="${anchor}" font-size="10" fill="#5A6571">${d.toLocaleDateString(undefined, { day:'numeric', month:'short' })}</text>`; };
+  $('chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Runs per day for the last 30 days">${bars}${lbl(0,'start')}${lbl(14,'middle')}${lbl(29,'end')}</svg>`;
+  $('chartSub').textContent = 'Last 30 days' + (userFilter ? ', selected person only' : '');
+}
+
+/* ---------- CSV ---------- */
+function csv(){
+  const list = runs.filter(r => inPeriod(r.date) && (!userFilter || key(r.name) === userFilter));
+  const cell = v => { v = v == null ? '' : String(v); if (/^[=+\-@]/.test(v)) v = "'" + v; return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+  const rows = [['Date','Name','Total','Food','Delivery','VAT %','People','Items','How']]
+    .concat(list.map(r => [r.date.toISOString(), r.name, r.total, r.food, r.delivery, r.vat, r.people, r.items, r.source]));
+  const blob = new Blob(['\ufeff' + rows.map(r => r.map(cell).join(',')).join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `who-ate-what-runs-${dayKey(new Date())}.csv`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+/* ---------- screens ---------- */
+function showLogin(msg){
+  $('dash').classList.add('hidden'); $('login').classList.remove('hidden');
+  $('loginErr').textContent = msg || ''; $('loginErr').classList.toggle('hidden', !msg);
+  setTimeout(() => ($('email').value ? $('password') : $('email')).focus(), 30);
+}
+function showDash(){ $('login').classList.add('hidden'); $('dash').classList.remove('hidden'); load(); }
+function signOut(msg){
+  const t = session?.access_token;
+  if (t) fetch(`${SB_URL}/auth/v1/logout`, { method: 'POST', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + t } }).catch(() => {});
+  saveSession(null); runs = []; userFilter = null; showLogin(msg);
+}
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('loginBtn').disabled = true; $('loginErr').classList.add('hidden');
+  try {
+    saveSession(await authRequest('password', { email: $('email').value.trim(), password: $('password').value }));
+    $('password').value = '';
+    showDash();
+  } catch (err) {
+    showLogin(err.status === 400 ? 'Wrong email or password.' : 'Could not reach Supabase. Check your connection and try again.');
+  } finally { $('loginBtn').disabled = false; }
+});
+$('refreshBtn').onclick = load;
+$('logoutBtn').onclick = () => signOut();
+$('csvBtn').onclick = csv;
+$('period').onchange = () => { shown = 50; render(); };
+$('moreBtn').onclick = () => { shown += 50; render(); };
+
+session = loadSession();
+session ? showDash() : showLogin();
+</script>
+</body>
+</html>
