@@ -62,7 +62,7 @@ button{cursor:pointer}
 .step:first-child .shot{max-width:340px}
 .hello h1{font-size:clamp(2.6rem,6.4vw,4.6rem);line-height:1;letter-spacing:-.035em;font-weight:800;margin:0 0 20px}
 .hello p{font-size:1.15rem;max-width:34ch;margin:0 0 28px}
-.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
+.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
 @media (prefers-color-scheme: dark){ .drop{background:rgba(255,255,255,.05);border-color:#5E6A67} }
 .drop.over{background:rgba(255,228,92,.35);border-color:var(--ink)}
 .drop strong{display:block;font-size:1.1rem;margin-bottom:4px}
@@ -234,10 +234,10 @@ dialog button{margin-top:10px}
   <div class="paper torn demo mono" id="demo" aria-hidden="true">
     <div class="title">** RECEIPT **</div>
     <div class="dash"></div>
-    <div class="line"><i class="mark" style="background:#FFE45C;animation-delay:.3s"></i><span>3 French fries</span><span>102.00</span></div><span class="who" style="animation-delay:.6s">Maged</span>
+    <div class="line"><i class="mark" style="background:#FFE45C;animation-delay:.3s"></i><span>3 French fries</span><span>102.00</span></div><span class="who" style="animation-delay:.6s">Majed</span>
     <div class="line"><i class="mark" style="background:#FF9EC7;animation-delay:.9s"></i><span>3 Omelet kiri</span><span>186.00</span></div><span class="who" style="animation-delay:1.2s">Rana</span>
     <div class="line"><i class="mark" style="background:#9BE58F;animation-delay:1.5s"></i><span>2 Taamia labna</span><span>84.00</span></div><span class="who" style="animation-delay:1.8s">Omar</span>
-    <div class="line"><i class="mark" style="background:linear-gradient(90deg,#FFE45C 0 50%,#9BE58F 50%);animation-delay:2.1s"></i><span>4 Fol pickled lemon</span><span>84.00</span></div><span class="who" style="animation-delay:2.4s">Maged and Omar</span>
+    <div class="line"><i class="mark" style="background:linear-gradient(90deg,#FFE45C 0 50%,#9BE58F 50%);animation-delay:2.1s"></i><span>4 Fol pickled lemon</span><span>84.00</span></div><span class="who" style="animation-delay:2.4s">Majed and Omar</span>
     <div class="dash"></div>
     <div class="line"><span>Food</span><span>356.00</span></div>
     <div class="line"><span>Delivery</span><span>22.50</span></div>
@@ -1005,7 +1005,7 @@ function renderPeople(){
     el.querySelector('button').onclick = () => removePerson(p.id);
     box.insertBefore(el, form);
   }
-  $('personName').placeholder = S.people.length ? 'Add another name' : 'Add a name, e.g. Maged';
+  $('personName').placeholder = S.people.length ? 'Add another name' : 'Add a name, e.g. Majed';
 }
 function highlight(ids){
   const cs = ids.map(id => S.people.find(p => p.id === id)?.color).filter(Boolean);
