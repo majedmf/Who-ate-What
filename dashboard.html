@@ -80,6 +80,26 @@ tr.user.active td{background:#FFF6C2}
 .chart svg{display:block;width:100%;height:auto}
 .empty{padding:26px 6px;color:var(--ink-soft)}
 .more{margin-top:12px}
+.msgs{margin-top:34px}
+.msghead{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.msgfilters{display:flex;gap:8px;flex-wrap:wrap}
+.badge{display:inline-block;background:#B3261E;color:#fff;font-size:.78rem;border-radius:999px;padding:1px 9px;vertical-align:3px;margin-left:4px}
+.newmsgs{display:inline-block;margin:-8px 0 18px;background:#B3261E;color:#fff;text-decoration:none;font-weight:700;border-radius:999px;padding:6px 14px;font-size:.9rem}
+.msg{border-top:1px solid var(--rule);padding:14px 2px;display:grid;gap:6px}
+.msg:first-child{border-top:0}
+.msg.done{opacity:.65}
+.mtop{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.kind{font-size:.75rem;font-weight:700;border-radius:999px;padding:2px 9px;color:#1E2833}
+.kind.question{background:#8FD3FF}.kind.bug{background:#FFB870}.kind.complaint{background:#FF9EC7}.kind.review{background:#9BE58F}
+.mstars{color:#F2B400;letter-spacing:1px}
+.mtext{white-space:pre-wrap;overflow-wrap:anywhere}
+.mmeta{font-size:.82rem;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:4px 14px}
+.mmeta a{color:inherit}
+.mact{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.mact .btn{color:var(--ink)} .mact .btn:not(.ghost){color:#fff}
+dialog.photo{border:0;padding:0;background:transparent;max-width:94vw}
+dialog.photo::backdrop{background:rgba(10,14,18,.8)}
+dialog.photo img{max-width:94vw;max-height:86vh;display:block;border-radius:6px}
 .foot{margin-top:40px;font-size:.8rem;text-align:center}
 .status{font-size:.85rem}
 @media (max-width: 900px){ .stats{grid-template-columns:repeat(2,minmax(0,1fr))} .grid{grid-template-columns:1fr} }
@@ -120,6 +140,7 @@ tr.user.active td{background:#FFF6C2}
     </div>
   </div>
 
+  <a href="#messages" class="newmsgs hidden" id="newMsgs"></a>
   <div class="stats">
     <div class="stat hero"><div class="l">Total amount</div><div class="v num" id="sAmount">0.00</div></div>
     <div class="stat paper"><div class="l">Total runs</div><div class="v num" id="sRuns">0</div></div>
@@ -150,9 +171,20 @@ tr.user.active td{background:#FFF6C2}
       <button class="btn ghost small more hidden" id="moreBtn">Show more</button>
     </div>
   </div>
+  <div class="paper torn panel msgs" id="messages">
+    <div class="msghead">
+      <div><h2>Messages <span class="badge hidden" id="newBadge"></span></h2><p class="soft sub" style="margin:0">Questions, reviews, complaints and scan problems sent from the tool.</p></div>
+      <div class="msgfilters">
+        <select id="msgStatus" aria-label="Show messages"><option value="new">New</option><option value="done">Done</option><option value="all">All</option></select>
+        <select id="msgKind" aria-label="Message type"><option value="all">All types</option><option value="question">Questions</option><option value="bug">Scan problems</option><option value="complaint">Complaints</option><option value="review">Reviews</option></select>
+      </div>
+    </div>
+    <div id="msgList"></div>
+  </div>
   <p class="foot soft on-desk">Made by Majed Ibrahim</p>
 </section>
 </div>
+<dialog class="photo" id="photoDlg"><img id="photoImg" alt="Receipt photo sent with the message"><button class="btn small" id="photoClose" style="margin-top:10px">Close</button></dialog>
 
 <script>
 const SB_URL = 'https://nskrnxqzehpxfnlqpraq.supabase.co';
@@ -202,7 +234,61 @@ async function fetchTable(table, cols){
   return all.map(r => ({ ...r, date: new Date(r.created_at), total: Number(r.total) || 0, name: String(r.user_name || 'Unknown').trim() }));
 }
 const fetchRuns = () => fetchTable('runs', 'id,created_at,user_name,total,food,delivery,vat,people,items,source');
-let visitsMissing = false;
+let visitsMissing = false, feedback = [], feedbackMissing = false;
+async function fetchFeedback(){
+  try { feedbackMissing = false; return await fetchTable('feedback', 'id,created_at,user_name,kind,rating,message,contact,page,app_version,device,has_photo,status'); }
+  catch (e) { if (e.status === 404){ feedbackMissing = true; return []; } throw e; }
+}
+async function setStatus(id, status){
+  const token = await validToken();
+  const res = await fetch(`${SB_URL}/rest/v1/feedback?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH', headers: { apikey: SB_KEY, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) throw new Error('Could not update (' + res.status + ')');
+}
+async function showPhoto(id){
+  const token = await validToken();
+  const res = await fetch(`${SB_URL}/rest/v1/feedback?select=photo&id=eq.${encodeURIComponent(id)}`, { headers: { apikey: SB_KEY, Authorization: 'Bearer ' + token } });
+  const rows = res.ok ? await res.json() : [];
+  if (!rows[0] || !rows[0].photo || !/^data:image\/(jpeg|png|webp);base64,/.test(rows[0].photo)){ alert('The photo could not be loaded.'); return; }
+  $('photoImg').src = rows[0].photo; $('photoDlg').showModal();
+}
+function deviceName(ua){
+  ua = ua || '';
+  const os = /iPhone|iPad/.test(ua) ? 'iPhone' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'Mac' : /Linux/.test(ua) ? 'Linux' : 'Other';
+  const br = /Edg\//.test(ua) ? 'Edge' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'browser';
+  return `${os}, ${br}`;
+}
+const KIND_LABEL = { question: 'Question', bug: 'Scan problem', complaint: 'Complaint', review: 'Review' };
+function renderMessages(){
+  const newCount = feedback.filter(f => f.status !== 'done').length;
+  $('newBadge').textContent = newCount; $('newBadge').classList.toggle('hidden', !newCount);
+  $('newMsgs').textContent = `${newCount} new message${newCount === 1 ? '' : 's'}`; $('newMsgs').classList.toggle('hidden', !newCount);
+  if (feedbackMissing){ $('msgList').innerHTML = '<p class="empty">The feedback table is missing in Supabase. Run the SQL for it, then press Refresh.</p>'; return; }
+  const st = $('msgStatus').value, kd = $('msgKind').value;
+  const list = feedback.filter(f => (st === 'all' || (st === 'done' ? f.status === 'done' : f.status !== 'done')) && (kd === 'all' || f.kind === kd));
+  if (!list.length){ $('msgList').innerHTML = `<p class="empty">${feedback.length ? 'No messages here.' : 'No messages yet.'}</p>`; return; }
+  $('msgList').innerHTML = list.map(f => {
+    const c = f.contact || '';
+    const link = /@/.test(c) ? `<a href="mailto:${esc(c)}">${esc(c)}</a>` : /\d{6,}/.test(c.replace(/\D/g, '')) ? `<a href="tel:${esc(c.replace(/[^\d+]/g, ''))}">${esc(c)}</a>` : esc(c);
+    return `<div class="msg${f.status === 'done' ? ' done' : ''}">
+      <div class="mtop"><span class="kind ${esc(f.kind)}">${KIND_LABEL[f.kind] || esc(f.kind)}</span>${f.rating ? `<span class="mstars" aria-label="${f.rating} out of 5">${'★'.repeat(f.rating)}${'☆'.repeat(5 - f.rating)}</span>` : ''}<strong>${esc(f.name)}</strong><span class="soft">${esc(when(f.date))}</span></div>
+      <div class="mtext">${esc(f.message)}</div>
+      <div class="mmeta">${c ? `<span>Reply to: ${link}</span>` : '<span>No contact left</span>'}<span>${esc(deviceName(f.device))}</span>${f.page ? `<span>Sent from: ${esc(({ welcome: 'Welcome', work: 'Tagging', summary: 'Summary', scanning: 'Scanning' })[f.page] || f.page)} screen</span>` : ''}${f.app_version ? `<span>v${esc(f.app_version)}</span>` : ''}</div>
+      <div class="mact">${f.has_photo ? `<button class="btn ghost small" data-photo="${f.id}">View receipt photo</button>` : ''}<button class="btn small${f.status === 'done' ? ' ghost' : ''}" data-status="${f.id}" data-to="${f.status === 'done' ? 'new' : 'done'}">${f.status === 'done' ? 'Reopen' : 'Mark as done'}</button></div>
+    </div>`;
+  }).join('');
+  $('msgList').querySelectorAll('[data-photo]').forEach(b => b.onclick = () => showPhoto(b.dataset.photo).catch(() => alert('The photo could not be loaded.')));
+  $('msgList').querySelectorAll('[data-status]').forEach(b => b.onclick = async () => {
+    b.disabled = true;
+    try { await setStatus(b.dataset.status, b.dataset.to); const f = feedback.find(x => String(x.id) === b.dataset.status); if (f) f.status = b.dataset.to; renderMessages(); }
+    catch (e) { alert(e.message); b.disabled = false; }
+  });
+}
+$('msgStatus').onchange = renderMessages;
+$('msgKind').onchange = renderMessages;
+$('photoClose').onclick = () => $('photoDlg').close();
 async function fetchVisits(){
   try { visitsMissing = false; return await fetchTable('visits', 'id,created_at,user_name,kind'); }
   catch (e) { if (e.status === 404){ visitsMissing = true; return []; } throw e; }
@@ -210,7 +296,7 @@ async function fetchVisits(){
 async function load(){
   $('refreshBtn').disabled = true; $('status').textContent = 'Loading…';
   try {
-    [runs, visits] = await Promise.all([fetchRuns(), fetchVisits()]);
+    [runs, visits, feedback] = await Promise.all([fetchRuns(), fetchVisits(), fetchFeedback()]);
     $('status').textContent = `Signed in as ${session.email || 'owner'}. Updated ${new Date().toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' })}.`
       + (visitsMissing ? ' The visits table is missing, so only people who finished a bill are listed.' : '');
     render();
@@ -291,6 +377,7 @@ function render(){
   $('moreBtn').classList.toggle('hidden', rl.length <= shown);
 
   drawChart(userFilter ? runs.filter(r => key(r.name) === userFilter) : runs);
+  renderMessages();
 }
 
 function drawChart(src){
