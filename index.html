@@ -82,7 +82,7 @@ button{cursor:pointer}
 .step:first-child .shot{max-width:340px}
 .hello h1{font-size:clamp(2.6rem,6.4vw,4.6rem);line-height:1;letter-spacing:-.035em;font-weight:800;margin:0 0 20px}
 .hello p{font-size:1.15rem;max-width:34ch;margin:0 0 28px}
-.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
+.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
 @media (prefers-color-scheme: dark){ .drop{background:rgba(255,255,255,.05);border-color:#5E6A67} }
 .drop.over{background:rgba(255,228,92,.35);border-color:var(--ink)}
 .drop strong{display:block;font-size:1.1rem;margin-bottom:4px}
@@ -942,7 +942,7 @@ function titleCase(s){ return s.toLowerCase().replace(/(^|[\s(&\/-])([a-z])/g, (
    App screenshots usually don't show one, so this often comes back empty (the user can type it). */
 function guessRestaurant(text){
   const bad = /\b(order|details|summary|items?|help|receipt|invoice|tax|check|chk|welcome|delivery|customer|pick ?up|printed|creator|table|cashier|date|time|thank|bill|total|subtotal|paid|visa|card|number|phone|tel|address|qty|price|cash|guest|gst|dine|take ?away|copy|reprint|points|wallet|balance|name|transaction|member|team|instructions?|note|payment)\b/i;
-  let seen = 0;
+  let seen = 0; const cands = [];
   const lines = text.split(/\r?\n/).slice(0, 14);
   for (const raw of lines){
     if (!raw.trim()) continue;
@@ -963,9 +963,15 @@ function guessRestaurant(text){
     const words = t.split(' ');
     if (!words.every(w => /^([A-Z][a-z'’]+|[A-Z&'’]{2,}|[a-z]{4,}|of|the|el|al|and|&|-|[\u0600-\u06FF]+)$/.test(w))) continue;
     if (!words.some(w => /^([A-Z][a-z]{2,}|[A-Z]{3,})$/.test(w))) continue;
-    return t === t.toUpperCase() ? titleCase(t) : t;
+    const name = t === t.toUpperCase() ? titleCase(t) : t;
+    // prefer lines that look like a business name over logo crumbs ("Nese ED")
+    let sc = -cands.length * 0.5;
+    if (/\b(restaurant|cafe|café|coffee|kitchen|grill|steak\w*|bakery|pizz\w*|burger\w*|ltd|food|house|bistro|diner|shawarma|koshary|foul|sushi)\b/i.test(t)) sc += 3;
+    if (words.every(w => w.replace(/[^A-Za-z]/g, '').length <= 4) && words.length > 1) sc -= 2;
+    cands.push([sc, name]);
   }
-  return '';
+  cands.sort((a, b) => b[0] - a[0]);
+  return cands.length && cands[0][0] > -2 ? cands[0][1] : '';
 }
 /* ======================= AI READING (Google Gemini via our Supabase function) ======================= */
 let aiUnavailable = false;   // set when the function isn't set up, so we stop asking this session
@@ -975,8 +981,11 @@ function photoForAI(img){
   c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
   return c.toDataURL('image/jpeg', 0.82).split(',')[1];
 }
+let aiProblem = '';          // why the AI couldn't help, shown to the user so setup issues are easy to spot
 async function readWithAI(img){
-  if (aiUnavailable || !navigator.onLine) return null;
+  aiProblem = '';
+  if (!navigator.onLine){ aiProblem = "You're offline, so the AI reader couldn't help."; return null; }
+  if (aiUnavailable) return null;
   const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 35000);
   try {
     const res = await fetch(SB_URL + '/functions/v1/scan-receipt', {
@@ -984,11 +993,15 @@ async function readWithAI(img){
       headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: photoForAI(img), mime: 'image/jpeg' })
     });
-    if (res.status === 404 || res.status === 500){ aiUnavailable = true; return null; }   // not set up (or no key yet)
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data && data.receipt ? aiToReceipt(data.receipt) : null;
-  } catch { return null; }
+    let data = null; try { data = await res.json(); } catch {}
+    const err = data && data.error;
+    if (res.status === 404){ aiUnavailable = true; aiProblem = "The AI reader isn't set up yet: the scan-receipt function wasn't found in Supabase."; return null; }
+    if (err === 'missing_key'){ aiUnavailable = true; aiProblem = 'The AI reader is set up, but the GEMINI_API_KEY secret is missing in Supabase.'; return null; }
+    if (res.status === 401 || res.status === 403){ aiProblem = `Supabase refused the AI request (error ${res.status}).`; return null; }
+    if (res.status === 429){ aiProblem = "Gemini's free limit is used up for now. Try this receipt again in a little while."; return null; }
+    if (!res.ok || !data || !data.receipt){ aiProblem = `The AI reader had a problem (${err || 'error ' + res.status}${data && data.status ? ', Gemini ' + data.status : ''}).`; return null; }
+    return aiToReceipt(data.receipt);
+  } catch (e) { aiProblem = e && e.name === 'AbortError' ? 'The AI reader took too long to answer.' : "The AI reader couldn't be reached."; return null; }
   finally { clearTimeout(timer); }
 }
 function aiToReceipt(a){
@@ -1000,7 +1013,7 @@ function aiToReceipt(a){
     const price = num(it.price); if (price == null || price === 0) continue;
     const name = String(it.name || '').trim().slice(0, 80) || 'Item';
     const row = { qty: Math.max(1, Math.round(num(it.quantity) || 1)), name, note: String(it.note || '').trim().toLowerCase().slice(0, 120), price,
-                  addon: /^(\+\+|add|extra|with|plus)\b/i.test(name) && !!parent };
+                  addon: !!parent && (/^(\+\+|add|extra|with|plus)\b/i.test(name) || name.toLowerCase().startsWith(parent.name.toLowerCase() + ' ')) };   // "Spanish Latte Large" goes with "Spanish Latte"
     out.items.push(row); if (!row.addon) parent = row;
   }
   const disc = num(a.discount);
@@ -1032,7 +1045,7 @@ function parseReceipt(text){
   const intPriceRe = /\s{2,}(\d{1,6})\s*[^\w\s]{0,2}\s*$/;
   const curIntRe = /(?:^|\s)(\d{1,6})\s*[^\w\s]{0,2}\s*$/;
   const skipRe = /\b(chk|check|gst|guest|table|tbl|tel|phone|mob|cashier|server|waiter|creator|invoice|order\s*(#|no|number|id)|receipt\s*(#|no)|target|printed|points|saved|paid with|items?\s*#)\b|^(order|check|bill|invoice|table|ticket|kot)\b|\d{1,2}:\d{2}|\d{7,}/i;
-  const sumRe = /^(sub\s*-?\s*total|subtotal|food|beverage|total|grand\s*total|net|vat|tax(?!\s*(no|number|id|reg|#))|service|delivery|other\s*charge|charges?|cash|change|visa|card|paid|balance|discount|amount\s*due|tips?|you saved|promo|voucher|packag|bag fee|small order)\b/i;
+  const sumRe = /^(sub\s*-?\s*total|subtotal|food|beverage|total|grand\s*total|net|vat|tax(?!\s*(no|number|id|reg|registration|#|invoice|inv|file|card|receipt))|service|delivery|other\s*charge|charges?|cash|change|visa|card|paid|balance|discount|amount\s*due|tips?|you saved|promo|voucher|packag|bag fee|small order)\b/i;
   const noteSkip = /\b(order|summary|receipt|help|view|items?|total|welcome|thank|glad|count|payment|method)\b/i;
   const junkLead = t => {                         // drop icon garbage like "os", "@eer", "#59" before the real name
     const w = t.split(' ');
@@ -1045,6 +1058,8 @@ function parseReceipt(text){
     let line = raw.replace(/^[\s|;:!'`"“”‘’~\-–—_.,\]\[(){}©®@*#]+/, '').replace(/[\s|;:!'`"“”~_\]\[{}]+$/, '');
     if (!line){ continue; }
     line = line.replace(/(\d{1,3}),(\d{3})(?=[.\s]|$)/g, '$1$2');                 // 1,015.50 -> 1015.50
+    line = line.replace(/(\d)\s+\.\s*(\d{2})\b/g, '$1.$2');                         // "615065 . 00" -> 615065.00
+    line = line.replace(/(\d[.,]\d{2})\s{3,}\S{1,2}\s*$/, '$1');                     // crumbs after the price: "3905.00     of"
     let body = line.replace(/^\d{1,2}:\d{2}\s*(am|pm)?\s*/i, '');                 // "09:43AM Total Due"
     // app screenshots: a product photo read as a short junk word, then a wide gap, then the name ("CH     Turkey & Cheese")
     body = body.replace(/^(\d{1,2}\s+)?([^\s\d]{1,4})\s{3,}(?=[A-Za-z])/, (m0, q, tok) => sumRe.test(tok) ? m0 : (q || ''));
@@ -1063,7 +1078,7 @@ function parseReceipt(text){
       const v = m ? toNum(m[1]) : null;
       if (v != null) sumVals.push(v);
       const pct = (label.match(/(\d{1,2}(?:\.\d+)?)\s*%/) || [])[1];
-      if (/^(vat|tax)/.test(L)){ out.vat = v; if (pct) out.vatRate = parseFloat(pct); inSummary = true; }
+      if (/^(vat|tax)/.test(L)){ if (v != null){ out.vat = v; inSummary = true; } if (pct) out.vatRate = parseFloat(pct); }
       else if (/^(food|sub)/.test(L)){ out.food = v; inSummary = true; }
       else if (/^(delivery|service|packag|bag fee|small order)/.test(L)){
         if (v != null && v > 0 && !/time|min/i.test(L)){ out.fees += v; out.feeParts.push([titleCase(firstWords.replace(/[^A-Za-z ]/g, '').trim()), v]); }
@@ -1121,7 +1136,7 @@ function parseReceipt(text){
   if (out.fees) out.delivery = (out.delivery || 0) + out.fees;
   if (!out.vatIncluded && out.vat == null && out.food){ const hit = sumVals.find(v => v !== out.food && Math.abs(v - out.food * 0.14) <= Math.max(0.05, out.food * 0.0005)); if (hit != null){ out.vat = hit; out.vatRate = 14; } }
   // "The prices include VAT": items already contain VAT, so none is added on top
-  if (/(prices?\s+(are\s+)?(include|inclusive|incl)\w*\s+(of\s+)?vat|vat\s+(is\s+)?(included|inclusive)|incl(\.|usive)?\s+(of\s+)?vat)/i.test(text)) out.vatIncluded = true;
+  if (/(prices?\s+(are\s+)?(include|inclusive|incl)\w*\s+(of\s+)?(\d{1,2}(\.\d+)?\s*%\s*)?vat|vat\s+(is\s+)?(included|inclusive)|incl(\.|usive)?\s+(of\s+)?vat)/i.test(text)) out.vatIncluded = true;
   if (out.items.length && out.totals.length){
     const sum = out.items.reduce((a, b) => a + b.price, 0), fees = out.delivery || 0, k = 1 + (out.vatRate || 14) / 100;
     const near = (a, b) => Math.abs(a - b) <= Math.max(0.05, Math.min(1, b * 0.001));
@@ -1349,6 +1364,7 @@ async function handleFile(file){
         aiTried = true;
         $('scanText').textContent = 'Asking Gemini AI to read it…';
         const ai = await readWithAI(img);
+        if (!ai && aiProblem) track('ai-scan-failed', { reason: aiProblem.slice(0, 60) });
         if (ai){
           track('ai-scan', { matched: matchesFood(ai), items: ai.items.length });
           if (!best || aiScore(ai) < score(best)) best = ai;
@@ -1374,6 +1390,7 @@ async function handleFile(file){
     else note = 'Double-check the items and prices against the photo before tagging.';
     track('receipt-scanned', { items: best.items.length, matched: matchesFood(best), receiptTotal: best.total != null ? Math.round(best.total * 100) / 100 : 0 });
     if (best.ai) note = (note ? note + ' ' : '') + 'Read with Google Gemini AI.';
+    else if (!matchesFood(best) && aiProblem) note = (note ? note + ' ' : '') + aiProblem;
     if (best.vatIncluded && best.items.length) note = (note ? note + ' ' : '') + 'The prices on this receipt already include VAT, so no extra VAT is added.';
     if (best.feeParts && best.feeParts.length > 1) note = (note ? note + ' ' : '') + `Fees found: ${best.feeParts.map(([n, v]) => `${n} ${fmt(v)}`).join(' + ')}. They're added together and split evenly, with no VAT.`;
     startWorkspace(best, img, note);
