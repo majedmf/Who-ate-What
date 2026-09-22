@@ -82,7 +82,7 @@ button{cursor:pointer}
 .step:first-child .shot{max-width:340px}
 .hello h1{font-size:clamp(2.6rem,6.4vw,4.6rem);line-height:1;letter-spacing:-.035em;font-weight:800;margin:0 0 20px}
 .hello p{font-size:1.15rem;max-width:34ch;margin:0 0 28px}
-.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
+.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
 @media (prefers-color-scheme: dark){ .drop{background:rgba(255,255,255,.05);border-color:#5E6A67} }
 .drop.over{background:rgba(255,228,92,.35);border-color:var(--ink)}
 .drop strong{display:block;font-size:1.1rem;margin-bottom:4px}
@@ -370,6 +370,7 @@ dialog button{margin-top:10px}
       <input id="restName" class="restname" maxlength="60" autocomplete="off" placeholder="Add the restaurant name">
       <h2>Tag each item with who had it</h2>
     </div>
+    <button class="btn ghost small hidden" id="aiAgainBtn" title="Send the photo to Google Gemini for a fresh read">Re-read with AI</button>
     <button class="btn ghost small" id="restartBtn">New receipt</button>
   </div>
   <p id="workNotice" class="notice hidden"></p>
@@ -1342,7 +1343,7 @@ document.addEventListener('paste', e => {
   const it = [...(e.clipboardData?.items || [])].find(i => i.type.startsWith('image/'));
   if (it) handleFile(it.getAsFile());
 });
-$('manualBtn').addEventListener('click', e => { e.preventDefault(); S.thumb = null; track('manual-entry'); startWorkspace({ items: [], delivery: null, vat: null }, null, 'Add each item and its price, then tag who had it.'); addItem(true); });
+$('manualBtn').addEventListener('click', e => { e.preventDefault(); S.thumb = null; S.lastImg = null; track('manual-entry'); startWorkspace({ items: [], delivery: null, vat: null }, null, 'Add each item and its price, then tag who had it.'); addItem(true); });
 // warm up the reader in the background so the first scan is quicker
 setTimeout(() => getWorker().catch(() => {}), 1500);
 
@@ -1354,6 +1355,7 @@ async function handleFile(file){
   catch { $('welcomeErr').textContent = "That photo couldn't be opened. Try a JPG or PNG (iPhone HEIC photos may need converting)."; $('welcomeErr').classList.remove('hidden'); return; }
   S.img = url;
   S.thumb = makeThumb(img);
+  S.lastImg = img;
   S.lastPhoto = () => {   // compressed copy, only sent if the user ticks "attach photo" in Help
     try {
       for (let side = 1400, q = 0.6; side >= 500; side -= 250, q -= 0.05){
@@ -1456,6 +1458,7 @@ function startWorkspace(r, img, note){
   S.feeNote = r.feeParts && r.feeParts.length > 1 ? r.feeParts.map(([n, v]) => `${n} ${fmt(v)}`).join(' + ') : '';
   $('vatOn').checked = S.vatOn; $('vatRate').value = S.vatRate; $('delivery').value = fmt(S.delivery);
   $('thumbBtn').classList.toggle('hidden', !img);
+  $('aiAgainBtn').classList.toggle('hidden', !img || !S.lastImg);
   if (img) $('thumbImg').src = S.img;
   $('workNotice').textContent = note || '';
   $('workNotice').classList.toggle('hidden', !note);
@@ -2033,6 +2036,24 @@ $('helpForm').addEventListener('submit', async e => {
     : 'Thanks! Your message was sent to Majed.';
   $('helpBody').classList.add('hidden'); $('helpDone').classList.remove('hidden');
 });
+
+$('aiAgainBtn').onclick = async () => {
+  if (!S.lastImg) return;
+  const btn = $('aiAgainBtn'); btn.disabled = true; btn.textContent = 'Asking Gemini…';
+  aiUnavailable = false;   // let the user retry after fixing the setup
+  const ai = await readWithAI(S.lastImg);
+  btn.disabled = false; btn.textContent = 'Re-read with AI';
+  if (!ai || !ai.items.length){
+    $('workNotice').textContent = aiProblem || "Gemini couldn't find any items on this photo.";
+    $('workNotice').classList.remove('hidden'); track('ai-reread', { ok: false }); return;
+  }
+  const fixed = fixByTotal(ai) || ai;
+  track('ai-reread', { ok: true, matched: matchesFood(fixed) });
+  const bits = ['Read again with Google Gemini AI.'];
+  if (!matchesFood(fixed)) bits.push('The items still don\u2019t match the receipt total, so check them against the photo.');
+  if (fixed.vatIncluded) bits.push('The prices already include VAT, so no extra VAT is added.');
+  startWorkspace(fixed, S.lastImg, bits.join(' '));
+};
 
 function restart(){ S.items = []; S.receiptTotal = null; S.receiptFood = null; setTab('split'); show('welcome'); }
 $('restartBtn').onclick = restart; $('restartBtn2').onclick = restart;
