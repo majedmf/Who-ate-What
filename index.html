@@ -82,7 +82,7 @@ button{cursor:pointer}
 .step:first-child .shot{max-width:340px}
 .hello h1{font-size:clamp(2.6rem,6.4vw,4.6rem);line-height:1;letter-spacing:-.035em;font-weight:800;margin:0 0 20px}
 .hello p{font-size:1.15rem;max-width:34ch;margin:0 0 28px}
-.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
+.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
 @media (prefers-color-scheme: dark){ .drop{background:rgba(255,255,255,.05);border-color:#5E6A67} }
 .drop.over{background:rgba(255,228,92,.35);border-color:var(--ink)}
 .drop strong{display:block;font-size:1.1rem;margin-bottom:4px}
@@ -1094,8 +1094,8 @@ function parseReceipt(text){
       const price = toNum(m[1]);
       if (price === null || price <= 0) continue;
       let name = clean, qty = colQty && colQty <= 30 ? colQty : null;
-      const q = name.match(/^(\d{1,2}|[IlJ|])\s*[xX×]?\s+(?=\S)/) || name.match(/^(\d{1,2})[xX×]\s*(?=[A-Za-z])/);
-      if (q){ const qq = q[1].replace(/[IlJ|]/, '1'); if (+qq > 0 && +qq <= 30){ qty = +qq; name = name.slice(q[0].length); } }
+      const q = name.match(/^(\d{1,2}|[IlJ|]|[SZ](?=\s+[A-Z][a-z]{2}))\s*[xX×]?\s+(?=\S)/) || name.match(/^(\d{1,2})[xX×]\s*(?=[A-Za-z])/);
+      if (q){ const qq = q[1].replace(/[IlJ|]/, '1').replace('S', '5').replace('Z', '2'); if (+qq > 0 && +qq <= 30){ qty = +qq; name = name.slice(q[0].length); } }
       name = junkLead(name).replace(/\s+[^A-Za-z0-9)\u0600-\u06FF]+$/, '').replace(/\s+[a-z]{1,2}$/, '').trim();
       // label has almost no letters (e.g. "v (300ml)"): the real name was on the line above
       if ((name.match(/[A-Za-z\u0600-\u06FF]/g) || []).length < 4 && prevText){
@@ -1163,6 +1163,38 @@ const matchesTotal = r => r.items.length > 0 && (r.totals && r.totals.length ? r
   return Math.abs(food + (r.delivery || 0) - t) <= tol || (r.delivery > 0 && Math.abs(food - t) <= tol);
 });
 const matchesFood = r => !!(matchesSubtotal(r) || matchesTotal(r));
+
+/* Self-check with the printed total: if the items are off by an amount that exactly one small
+   misread would explain (an extra digit, or 1↔7, 6↔8, 0↔8…), fix that one price and flag it. */
+const LOOKALIKE = { '0': '869', '1': '74', '2': '7', '3': '859', '4': '1', '5': '638', '6': '850', '7': '12', '8': '036954', '9': '830' };
+function priceVariants(p){
+  const s = p.toFixed(2), out = new Set();
+  const int = s.split('.')[0], dec = s.split('.')[1];
+  for (let i = 0; i < int.length; i++){
+    if (int.length > 1) out.add(int.slice(0, i) + int.slice(i + 1));                     // extra digit read
+    for (const d of (LOOKALIKE[int[i]] || '')) if (!(i === 0 && d === '0')) out.add(int.slice(0, i) + d + int.slice(i + 1));
+    for (const d of '0123456789') out.add(int.slice(0, i + 1) + d + int.slice(i + 1)); // a digit was dropped
+  }
+  return [...out].map(x => parseFloat(x + '.' + dec)).filter(v => v > 0 && v !== p);
+}
+function fixByTotal(r){
+  if (!r || !r.items.length || matchesFood(r)) return null;
+  const sum = itemsSum(r), fees = r.delivery || 0, k = r.vat != null ? 1 + (r.vatRate || 14) / 100 : 1;
+  const targets = [];
+  if (r.food != null) targets.push(r.food);
+  for (const t of (r.totals && r.totals.length ? r.totals : (r.total != null ? [r.total] : []))){ targets.push((t - fees) / k, t / k); }
+  for (const target of targets){
+    const diff = Math.round((sum - target) * 100) / 100;
+    if (!diff || Math.abs(diff) > sum) continue;
+    const hits = [];
+    r.items.forEach((it, i) => { for (const v of priceVariants(it.price)) if (Math.abs((it.price - v) - diff) < 0.005) hits.push([i, v]); });
+    if (hits.length !== 1) continue;                      // only fix when exactly one change explains it
+    const [i, v] = hits[0];
+    const fixed = { ...r, items: r.items.map((it, j) => j === i ? { ...it, price: v, fixedFrom: it.price } : it) };
+    if (matchesFood(fixed)) return fixed;
+  }
+  return null;
+}
 
 /* ======================= STATE ======================= */
 const COLORS = ['#FFE45C','#FF9EC7','#9BE58F','#8FD3FF','#FFB870','#C9A7FF','#7FE0D0','#F7A59B'];
@@ -1383,12 +1415,15 @@ async function handleFile(file){
       if (!best || score(r) < score(best)) best = r;
       if (matchesFood(best)) break;
     }
+    const repaired = fixByTotal(best);
+    if (repaired) best = repaired;
     let note;
     if (!best.items.length) note = "I couldn't pick out any items from this photo. Add them below, using the photo (top left) as a guide.";
     else if (matchesFood(best)) note = null;
     else if (best.food != null) note = `The items I found add up to ${fmt(itemsSum(best))}, but the receipt says food is ${fmt(best.food)}. Check the names and prices against the photo.`;
     else note = 'Double-check the items and prices against the photo before tagging.';
     track('receipt-scanned', { items: best.items.length, matched: matchesFood(best), receiptTotal: best.total != null ? Math.round(best.total * 100) / 100 : 0 });
+    if (repaired){ const f = best.items.find(i => i.fixedFrom != null); note = (note ? note + ' ' : '') + `One price looked misread, so I corrected ${f.name} from ${fmt(f.fixedFrom)} to ${fmt(f.price)} to match the receipt total. Please check it against the photo.`; }
     if (best.ai) note = (note ? note + ' ' : '') + 'Read with Google Gemini AI.';
     else if (!matchesFood(best) && aiProblem) note = (note ? note + ' ' : '') + aiProblem;
     if (best.vatIncluded && best.items.length) note = (note ? note + ' ' : '') + 'The prices on this receipt already include VAT, so no extra VAT is added.';
@@ -1409,7 +1444,7 @@ function startWorkspace(r, img, note){
   S.billId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   S.items = []; S.reported = false; let parent = null;
   for (const it of r.items){
-    const item = { id: uid++, qty: it.qty, name: it.name, note: it.note || '', price: it.price, people: [], follows: null };
+    const item = { id: uid++, qty: it.qty, name: it.name, note: it.note || '', price: it.price, people: [], follows: null, fixedFrom: it.fixedFrom ?? null };
     if (it.addon && parent){ item.follows = parent.id; item.parentName = parent.name; }
     else parent = item;
     S.items.push(item);
@@ -1496,7 +1531,7 @@ function renderItems(){
       if (!usesCounts(it) && it.people.length > 1) countNote = `shared evenly. Tap + if someone had more than one`;
       else if (usesCounts(it) && tu !== qn) countNote = `${tu} tagged but the receipt says ${qn}, so the price is split in proportion`;
     }
-    const meta = [it.note, parent ? 'goes with ' + parent.name + ' until you tag it' : '', countNote].filter(Boolean).map(t => t[0].toUpperCase() + t.slice(1)).join('. ');
+    const meta = [it.fixedFrom != null ? `corrected from ${fmt(it.fixedFrom)} to match the receipt total` : '', it.note, parent ? 'goes with ' + parent.name + ' until you tag it' : '', countNote].filter(Boolean).map(t => t[0].toUpperCase() + t.slice(1)).join('. ');
     row.innerHTML = `
       <div class="hl" style="background:${highlight(it)}"></div>
       <div class="top">
@@ -1511,7 +1546,7 @@ function renderItems(){
     q.oninput = () => { it.qty = parseInt(q.value) || ''; };
     q.onchange = () => { renderItems(); renderTotals(); };
     n.oninput = () => { it.name = n.value; };
-    pr.oninput = () => { it.price = num(pr.value); renderTotals(); };
+    pr.oninput = () => { it.price = num(pr.value); it.fixedFrom = null; renderTotals(); };
     pr.onblur = () => { if (pr.value) pr.value = fmt(it.price); };
     row.querySelector('.del').onclick = () => {
       S.items = S.items.filter(x => x !== it);
