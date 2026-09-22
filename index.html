@@ -82,7 +82,7 @@ button{cursor:pointer}
 .step:first-child .shot{max-width:340px}
 .hello h1{font-size:clamp(2.6rem,6.4vw,4.6rem);line-height:1;letter-spacing:-.035em;font-weight:800;margin:0 0 20px}
 .hello p{font-size:1.15rem;max-width:34ch;margin:0 0 28px}
-.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
+.drop{display:block;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;cursor:pointer;border:2px dashed #8E9A96;border-radius:14px;padding:26px 24px;background:rgba(255,255,255,.45);transition:background .15s,border-color .15s;max-width:440px}
 @media (prefers-color-scheme: dark){ .drop{background:rgba(255,255,255,.05);border-color:#5E6A67} }
 .drop.over{background:rgba(255,228,92,.35);border-color:var(--ink)}
 .drop strong{display:block;font-size:1.1rem;margin-bottom:4px}
@@ -291,7 +291,7 @@ dialog button{margin-top:10px}
     <p class="soft">Snap the receipt and upload it here. I'll read the items and prices, you tag each one with a name, and everyone gets their share with VAT and delivery worked out.</p>
     <div class="drop" id="drop">
       <strong>Upload a photo of the receipt</strong>
-      <span class="soft">Drop it here, paste it, or pick a file. Works offline, and the photo never leaves your device.</span>
+      <span class="soft">Drop it here, paste it, or pick a file. Receipts are read on your device; if one is hard to read, it's sent to Google's Gemini AI for a better read.</span>
       <span class="row">
         <span class="btn" role="button" tabindex="0" id="pickBtn">Choose photo</span>
         <button type="button" class="linkish" id="manualBtn">Type the items instead</button>
@@ -870,6 +870,38 @@ function straighten(img){
   return { src: c, deg };
 }
 
+/* Receipts that print items inside a boxed table confuse the reader: erase long straight lines first */
+function eraseGrid(c){
+  const w = c.width, h = c.height, x = c.getContext('2d'), d = x.getImageData(0, 0, w, h), p = d.data;
+  const dark = new Uint8Array(w * h);
+  // dark = clearly darker than the local surroundings (same idea as the high-contrast pass)
+  const g = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) g[i] = .299*p[i*4] + .587*p[i*4+1] + .114*p[i*4+2];
+  const W1 = w + 1, I = new Float64Array(W1 * (h + 1));
+  for (let y = 0; y < h; y++){ let row = 0; for (let xx = 0; xx < w; xx++){ row += g[y*w+xx]; I[(y+1)*W1+xx+1] = I[y*W1+xx+1] + row; } }
+  const r = Math.round(w / 30);
+  for (let y = 0; y < h; y++) for (let xx = 0; xx < w; xx++){
+    const a1 = Math.max(0,xx-r), a2 = Math.min(w-1,xx+r), b1 = Math.max(0,y-r), b2 = Math.min(h-1,y+r);
+    const cnt = (a2-a1+1)*(b2-b1+1), sm = I[(b2+1)*W1+a2+1] - I[b1*W1+a2+1] - I[(b2+1)*W1+a1] + I[b1*W1+a1];
+    dark[y*w+xx] = g[y*w+xx]*cnt < sm*0.85 ? 1 : 0;
+  }
+  const kill = new Uint8Array(w * h), minH = Math.round(w * 0.12), minV = Math.round(h * 0.035);
+  // horizontal runs (allow 2px gaps for broken thermal lines)
+  for (let y = 0; y < h; y++){ let s = -1, gap = 0;
+    for (let xx = 0; xx <= w; xx++){ const on = xx < w && dark[y*w+xx];
+      if (on){ if (s < 0) s = xx; gap = 0; } else if (s >= 0 && ++gap > 2){ const e = xx - gap; if (e - s >= minH) for (let k = s; k <= e; k++) kill[y*w+k] = 1; s = -1; gap = 0; } } }
+  for (let xx = 0; xx < w; xx++){ let s = -1, gap = 0;
+    for (let y = 0; y <= h; y++){ const on = y < h && dark[y*w+xx];
+      if (on){ if (s < 0) s = y; gap = 0; } else if (s >= 0 && ++gap > 2){ const e = y - gap; if (e - s >= minV) for (let k = s; k <= e; k++) kill[k*w+xx] = 1; s = -1; gap = 0; } } }
+  // erase the lines (plus a 1px halo) with the local paper colour
+  for (let y = 1; y < h - 1; y++) for (let xx = 1; xx < w - 1; xx++){
+    const i = y*w+xx;
+    if (kill[i] || kill[i-1] || kill[i+1] || kill[i-w] || kill[i+w]){ p[i*4] = p[i*4+1] = p[i*4+2] = 255; }
+  }
+  x.putImageData(d, 0, 0);
+  return c;
+}
+
 function preprocess(img, sharpen){
   const r0 = cropPaper(img);
   const s = Math.min(3, 1800 / r0.w);
@@ -909,9 +941,12 @@ function titleCase(s){ return s.toLowerCase().replace(/(^|[\s(&\/-])([a-z])/g, (
 /* Restaurant name: the first clean-looking line at the top of the receipt, before any prices.
    App screenshots usually don't show one, so this often comes back empty (the user can type it). */
 function guessRestaurant(text){
-  const bad = /\b(order|details|summary|items?|help|receipt|invoice|tax|check|chk|welcome|delivery|customer|pick ?up|printed|creator|table|cashier|date|time|thank|bill|total|subtotal|paid|visa|card|number|phone|tel|address|qty|price|cash|guest|gst|dine|take ?away|copy|reprint)\b/i;
+  const bad = /\b(order|details|summary|items?|help|receipt|invoice|tax|check|chk|welcome|delivery|customer|pick ?up|printed|creator|table|cashier|date|time|thank|bill|total|subtotal|paid|visa|card|number|phone|tel|address|qty|price|cash|guest|gst|dine|take ?away|copy|reprint|points|wallet|balance|name|transaction|member|team|instructions?|note|payment)\b/i;
+  let seen = 0;
   const lines = text.split(/\r?\n/).slice(0, 14);
   for (const raw of lines){
+    if (!raw.trim()) continue;
+    if (++seen > 6) break;                                            // the name is printed at the very top
     if (/\d{1,2}:\d{2}/.test(raw)) continue;
     if (/(\d[.,]\d{2}\b|EGP\s*\d)/i.test(raw)) break;                   // reached the prices: stop looking
     let t = raw.split(/\s\/\s/)[0];                                     // "The Food Culture / ذا فود - Arkan" -> first part
@@ -924,24 +959,85 @@ function guessRestaurant(text){
     const letters = (t.match(/[A-Za-z\u0600-\u06FF]/g) || []).length;
     if (letters < 3 || bad.test(t) || t.split(' ').length > 6) continue;
     if (!/[A-Z\u0600-\u06FF]/.test(t)) continue;                        // real names start with capitals
+    // every word should look like a word (not OCR soup like "Ly WeEE" or "ER woc")
+    const words = t.split(' ');
+    if (!words.every(w => /^([A-Z][a-z'’]+|[A-Z&'’]{2,}|[a-z]{4,}|of|the|el|al|and|&|-|[\u0600-\u06FF]+)$/.test(w))) continue;
+    if (!words.some(w => /^([A-Z][a-z]{2,}|[A-Z]{3,})$/.test(w))) continue;
     return t === t.toUpperCase() ? titleCase(t) : t;
   }
   return '';
 }
+/* ======================= AI READING (Google Gemini via our Supabase function) ======================= */
+let aiUnavailable = false;   // set when the function isn't set up, so we stop asking this session
+function photoForAI(img){
+  const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.82).split(',')[1];
+}
+async function readWithAI(img){
+  if (aiUnavailable || !navigator.onLine) return null;
+  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 35000);
+  try {
+    const res = await fetch(SB_URL + '/functions/v1/scan-receipt', {
+      method: 'POST', signal: ctrl.signal,
+      headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: photoForAI(img), mime: 'image/jpeg' })
+    });
+    if (res.status === 404 || res.status === 500){ aiUnavailable = true; return null; }   // not set up (or no key yet)
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && data.receipt ? aiToReceipt(data.receipt) : null;
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+function aiToReceipt(a){
+  const num = v => (typeof v === 'number' && isFinite(v)) ? Math.round(v * 100) / 100 : null;
+  const out = { items: [], delivery: null, vat: null, vatRate: null, food: num(a.subtotal), total: num(a.total), totals: [], other: null,
+                fees: 0, feeParts: [], vatIncluded: !!a.prices_include_vat, restaurant: String(a.restaurant || '').trim().slice(0, 60), ai: true };
+  let parent = null;
+  for (const it of (Array.isArray(a.items) ? a.items : [])){
+    const price = num(it.price); if (price == null || price === 0) continue;
+    const name = String(it.name || '').trim().slice(0, 80) || 'Item';
+    const row = { qty: Math.max(1, Math.round(num(it.quantity) || 1)), name, note: String(it.note || '').trim().toLowerCase().slice(0, 120), price,
+                  addon: /^(\+\+|add|extra|with|plus)\b/i.test(name) && !!parent };
+    out.items.push(row); if (!row.addon) parent = row;
+  }
+  const disc = num(a.discount);
+  if (disc && disc > 0) out.items.push({ qty: 1, name: 'Discount', note: 'tag everyone who shares it', price: -disc, addon: false });
+  for (const f of (Array.isArray(a.fees) ? a.fees : [])){
+    const v = num(f.amount); if (!v || v <= 0) continue;
+    out.fees += v; out.feeParts.push([titleCase(String(f.label || 'Fee').replace(/[^A-Za-z\u0600-\u06FF ]/g, '').trim() || 'Fee'), v]);
+  }
+  if (out.fees) out.delivery = Math.round(out.fees * 100) / 100;
+  if (out.total != null) out.totals.push(out.total);
+  const sum = out.items.reduce((s, i) => s + i.price, 0), fees = out.delivery || 0;
+  const rate = num(a.vat_rate) || (num(a.vat_amount) && sum ? Math.round(num(a.vat_amount) / sum * 100) : 14);
+  const near = (x, y) => Math.abs(x - y) <= Math.max(0.05, Math.min(1, y * 0.001));
+  // trust the arithmetic over the AI's opinion when the printed total settles it
+  if (out.total != null && sum){
+    if (near(sum + fees, out.total) || near(sum, out.total)) out.vatIncluded = true;
+    else if (near(sum * (1 + rate / 100) + fees, out.total) || near(sum * (1 + rate / 100), out.total)) out.vatIncluded = false;
+  }
+  if (!out.vatIncluded && (num(a.vat_amount) || num(a.vat_rate))){ out.vat = num(a.vat_amount) ?? Math.round(sum * rate) / 100; out.vatRate = rate > 0 && rate <= 30 ? rate : 14; }
+  return out;
+}
+
 function parseReceipt(text){
   const sumVals = [];
-  const out = { items: [], delivery: null, vat: null, vatRate: null, food: null, total: null, other: null, fees: 0, feeParts: [] };
+  const out = { items: [], delivery: null, vat: null, vatRate: null, food: null, total: null, other: null, fees: 0, feeParts: [], totals: [], vatIncluded: false };
   const toNum = s => { s = String(s).replace(/[oO]/g, '0').replace(/\s+/g, '.').replace(',', '.'); const n = parseFloat(s); return isFinite(n) ? n : null; };
   const CUR = /(?:\bEGP\b|\bL\.?\s?E\.?(?=\s*\d)|E£|ج\.?م\.?|جنيه)\s*/gi;
   const priceRe = /(?:^|\s)(\d{1,6}(?:[.,]\d{1,2}|\s\d{2}))\s*[^\w\s]{0,2}\s*$/;
   const intPriceRe = /\s{2,}(\d{1,6})\s*[^\w\s]{0,2}\s*$/;
   const curIntRe = /(?:^|\s)(\d{1,6})\s*[^\w\s]{0,2}\s*$/;
-  const skipRe = /\b(chk|check|gst|guest|table|tbl|tel|phone|mob|cashier|server|waiter|creator|invoice|order\s*(#|no|number|id)|receipt\s*(#|no)|target|printed|points|saved|paid with)\b|^(order|check|bill|invoice|table|ticket|kot)\b|\d{1,2}:\d{2}|\d{7,}/i;
+  const skipRe = /\b(chk|check|gst|guest|table|tbl|tel|phone|mob|cashier|server|waiter|creator|invoice|order\s*(#|no|number|id)|receipt\s*(#|no)|target|printed|points|saved|paid with|items?\s*#)\b|^(order|check|bill|invoice|table|ticket|kot)\b|\d{1,2}:\d{2}|\d{7,}/i;
   const sumRe = /^(sub\s*-?\s*total|subtotal|food|beverage|total|grand\s*total|net|vat|tax(?!\s*(no|number|id|reg|#))|service|delivery|other\s*charge|charges?|cash|change|visa|card|paid|balance|discount|amount\s*due|tips?|you saved|promo|voucher|packag|bag fee|small order)\b/i;
   const noteSkip = /\b(order|summary|receipt|help|view|items?|total|welcome|thank|glad|count|payment|method)\b/i;
   const junkLead = t => {                         // drop icon garbage like "os", "@eer", "#59" before the real name
     const w = t.split(' ');
-    while (w.length > 1 && (/[^A-Za-z0-9&'().\u0600-\u06FF-]/.test(w[0]) || /^[a-z]{1,4}$/.test(w[0]) || /^[=#~]/.test(w[0]))) w.shift();
+    const hasCaps = w.slice(1).some(x => /^[A-Z]/.test(x));
+    while (w.length > 1 && (/[^A-Za-z0-9&'().\u0600-\u06FF+-]/.test(w[0]) || (hasCaps && /^[a-z]{1,4}$/.test(w[0])) || /^[=#~]/.test(w[0]))) w.shift();
     return w.join(' ');
   };
   let inSummary = false, last = null, pending = null, prevText = null;
@@ -952,8 +1048,12 @@ function parseReceipt(text){
     let body = line.replace(/^\d{1,2}:\d{2}\s*(am|pm)?\s*/i, '');                 // "09:43AM Total Due"
     // app screenshots: a product photo read as a short junk word, then a wide gap, then the name ("CH     Turkey & Cheese")
     body = body.replace(/^(\d{1,2}\s+)?([^\s\d]{1,4})\s{3,}(?=[A-Za-z])/, (m0, q, tok) => sumRe.test(tok) ? m0 : (q || ''));
-    const hadCur = /(?:\bEGP\b|\bL\.?\s?E\.?\s*\d|E£|ج\.?م|جنيه)/i.test(body);
+    const hadCur = /(?:\bEGP\b|\bL\.?\s?E\.?\s*\d|\d\s*L\.?\s?E\b|E£|ج\.?م|جنيه)/i.test(body);
+    body = body.replace(/(\d)\s*(?:L\.?\s?E\b\.?|EGP\b|ج\.?م\.?)/gi, '$1  ');      // "260.00 L.E" -> "260.00"
     body = body.replace(CUR, '  ');
+    // table receipts: "1X260.00   260.00" = quantity x unit price, then the line amount
+    let colQty = null;
+    body = body.replace(/(?:^|\s)(\d{1,2})\s*[xX×]\s*\d{1,6}(?:[.,]\d{1,2})?(?=\s+\S)/, (m0, q) => { colQty = +q; return '  '; });
     let m = body.match(priceRe) || body.match(intPriceRe) || (hadCur ? body.match(curIntRe) : null);
     const label = m ? body.slice(0, m.index).trim() : body.trim();
     const clean = label.replace(/[^A-Za-z\u0600-\u06FF0-9 %&\/'(),.-]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -966,19 +1066,19 @@ function parseReceipt(text){
       if (/^(vat|tax)/.test(L)){ out.vat = v; if (pct) out.vatRate = parseFloat(pct); inSummary = true; }
       else if (/^(food|sub)/.test(L)){ out.food = v; inSummary = true; }
       else if (/^(delivery|service|packag|bag fee|small order)/.test(L)){
-        if (v != null && !/time|min/i.test(L)){ out.fees += v; out.feeParts.push([titleCase(firstWords.replace(/[^A-Za-z ]/g, '').trim()), v]); }
+        if (v != null && v > 0 && !/time|min/i.test(L)){ out.fees += v; out.feeParts.push([titleCase(firstWords.replace(/[^A-Za-z ]/g, '').trim()), v]); }
         inSummary = inSummary || v != null;
       }
       else if (/^(other\s*charge|charges?)/.test(L)){ out.other = v; inSummary = true; }
-      else if (/total|amount\s*due/.test(L)){ if (v != null) out.total = v; inSummary = true; }
-      else inSummary = true;
+      else if (/total|amount\s*due/.test(L)){ if (v != null){ out.total = v; out.totals.push(v); } inSummary = true; }
+      else if (v != null) inSummary = true;
       prevText = null; continue;
     }
     if (inSummary) continue;
     if (m && !skipRe.test(line) && /[A-Za-z\u0600-\u06FF]{2,}|^[A-Z]\b/.test(label)){
       const price = toNum(m[1]);
       if (price === null || price <= 0) continue;
-      let name = clean, qty = null;
+      let name = clean, qty = colQty && colQty <= 30 ? colQty : null;
       const q = name.match(/^(\d{1,2}|[IlJ|])\s*[xX×]?\s+(?=\S)/) || name.match(/^(\d{1,2})[xX×]\s*(?=[A-Za-z])/);
       if (q){ const qq = q[1].replace(/[IlJ|]/, '1'); if (+qq > 0 && +qq <= 30){ qty = +qq; name = name.slice(q[0].length); } }
       name = junkLead(name).replace(/\s+[^A-Za-z0-9)\u0600-\u06FF]+$/, '').replace(/\s+[a-z]{1,2}$/, '').trim();
@@ -1019,9 +1119,22 @@ function parseReceipt(text){
   out.restaurant = guessRestaurant(text);
   if (out.delivery == null && out.other != null) out.delivery = out.other;
   if (out.fees) out.delivery = (out.delivery || 0) + out.fees;
-  if (out.vat == null && out.food){ const hit = sumVals.find(v => v !== out.food && Math.abs(v - out.food * 0.14) <= Math.max(0.05, out.food * 0.0005)); if (hit != null){ out.vat = hit; out.vatRate = 14; } }
+  if (!out.vatIncluded && out.vat == null && out.food){ const hit = sumVals.find(v => v !== out.food && Math.abs(v - out.food * 0.14) <= Math.max(0.05, out.food * 0.0005)); if (hit != null){ out.vat = hit; out.vatRate = 14; } }
+  // "The prices include VAT": items already contain VAT, so none is added on top
+  if (/(prices?\s+(are\s+)?(include|inclusive|incl)\w*\s+(of\s+)?vat|vat\s+(is\s+)?(included|inclusive)|incl(\.|usive)?\s+(of\s+)?vat)/i.test(text)) out.vatIncluded = true;
+  if (out.items.length && out.totals.length){
+    const sum = out.items.reduce((a, b) => a + b.price, 0), fees = out.delivery || 0, k = 1 + (out.vatRate || 14) / 100;
+    const near = (a, b) => Math.abs(a - b) <= Math.max(0.05, Math.min(1, b * 0.001));
+    const off = out.totals.some(t => near(sum + fees, t) || near(sum, t));
+    const on = out.totals.some(t => near(sum * k + fees, t) || near(sum * k, t));
+    if (off && !on) out.vatIncluded = true;
+    // keep the printed total that matches the whole bill (a receipt can print several "totals")
+    const grand = out.vatIncluded || (out.vat == null && !on) ? sum + fees : sum * k + fees;
+    const hit = out.totals.find(t => near(grand, t)); if (hit != null) out.total = hit;
+  }
+  if (out.vatIncluded){ out.vat = null; }
   // VAT hidden by a misread label? infer it from the totals
-  if (out.vat == null && out.food != null && out.total != null){
+  if (!out.vatIncluded && out.vat == null && out.food != null && out.total != null){
     const fees = out.delivery || 0;
     if (Math.abs(out.total - (out.food * 1.14 + fees)) <= Math.max(1, out.total * 0.001)){ out.vat = Math.round(out.food * 14) / 100; out.vatRate = 14; }
   }
@@ -1030,8 +1143,10 @@ function parseReceipt(text){
 const itemsSum = r => r.items.reduce((a, b) => a + b.price, 0);
 const matchesSubtotal = r => r.food != null && r.items.length && Math.abs(itemsSum(r) - r.food) < 0.05;
 // also accept a read whose items + VAT + fees land on the printed total (useful when the subtotal line itself was misread)
-const matchesTotal = r => r.total != null && r.items.length > 0 &&
-  Math.abs(itemsSum(r) * (1 + (r.vat != null ? (r.vatRate || 14) / 100 : 0)) + (r.delivery || 0) - r.total) <= Math.max(0.05, Math.min(1, r.total * 0.001));
+const matchesTotal = r => r.items.length > 0 && (r.totals && r.totals.length ? r.totals : (r.total != null ? [r.total] : [])).some(t => {
+  const food = itemsSum(r) * (1 + (r.vat != null ? (r.vatRate || 14) / 100 : 0)), tol = Math.max(0.05, Math.min(1, t * 0.001));
+  return Math.abs(food + (r.delivery || 0) - t) <= tol || (r.delivery > 0 && Math.abs(food - t) <= tol);
+});
 const matchesFood = r => !!(matchesSubtotal(r) || matchesTotal(r));
 
 /* ======================= STATE ======================= */
@@ -1219,14 +1334,36 @@ async function handleFile(file){
     // straightened + plain, + high contrast, + brightened, then the original angle if straightening didn't help.
     const st = straighten(img);
     // small tilts are handled fine by the reader itself; only straighten when the photo is noticeably crooked
+    const base = Math.abs(st.deg) < 3 ? img : st.src;
     const tries = Math.abs(st.deg) < 3
       ? [[img, false], [img, true], [img, 'stretch']]
       : [[st.src, false], [st.src, true], [st.src, 'stretch'], [img, false], [img, true]];
+    // receipts that print items in a boxed table: erase the grid lines, then read in two layouts
+    tries.push([base, false, { grid: true }], [base, false, { grid: true, psm: '4' }]);
     const score = r => matchesFood(r) ? -1e9 : (r.food != null && r.items.length ? Math.abs(itemsSum(r) - r.food) : 1e6 - r.items.length);
-    let best = null;
+    let best = null, aiTried = false;
+    const aiScore = r => score(r) - 0.5;   // on a tie, prefer the AI's cleaner item names
     for (let i = 0; i < tries.length; i++){
+      if (i === 1 && !aiTried){
+        // the quick on-device read didn't add up: ask Gemini before trying the slower on-device variations
+        aiTried = true;
+        $('scanText').textContent = 'Asking Gemini AI to read it…';
+        const ai = await readWithAI(img);
+        if (ai){
+          track('ai-scan', { matched: matchesFood(ai), items: ai.items.length });
+          if (!best || aiScore(ai) < score(best)) best = ai;
+          if (matchesFood(best)) break;
+        }
+      }
       pass = i; passCount = tries.length;
-      const r = parseReceipt((await w.recognize(preprocess(tries[i][0], tries[i][1]))).data.text);
+      const opt = tries[i][2] || {};
+      let canvas = preprocess(tries[i][0], tries[i][1]);
+      if (opt.grid) canvas = eraseGrid(canvas);
+      if (opt.psm) await w.setParameters({ tessedit_pageseg_mode: opt.psm });
+      let text;
+      try { text = (await w.recognize(canvas)).data.text; }
+      finally { if (opt.psm) await w.setParameters({ tessedit_pageseg_mode: '6' }); }
+      const r = parseReceipt(text);
       if (!best || score(r) < score(best)) best = r;
       if (matchesFood(best)) break;
     }
@@ -1236,6 +1373,8 @@ async function handleFile(file){
     else if (best.food != null) note = `The items I found add up to ${fmt(itemsSum(best))}, but the receipt says food is ${fmt(best.food)}. Check the names and prices against the photo.`;
     else note = 'Double-check the items and prices against the photo before tagging.';
     track('receipt-scanned', { items: best.items.length, matched: matchesFood(best), receiptTotal: best.total != null ? Math.round(best.total * 100) / 100 : 0 });
+    if (best.ai) note = (note ? note + ' ' : '') + 'Read with Google Gemini AI.';
+    if (best.vatIncluded && best.items.length) note = (note ? note + ' ' : '') + 'The prices on this receipt already include VAT, so no extra VAT is added.';
     if (best.feeParts && best.feeParts.length > 1) note = (note ? note + ' ' : '') + `Fees found: ${best.feeParts.map(([n, v]) => `${n} ${fmt(v)}`).join(' + ')}. They're added together and split evenly, with no VAT.`;
     startWorkspace(best, img, note);
   } catch (e) {
