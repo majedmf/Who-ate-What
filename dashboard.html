@@ -312,7 +312,7 @@ const AI_HELP = {
   404: "The <b>scan-receipt</b> function wasn't found. In Supabase open <b>Edge Functions</b> and check a function named exactly <b>scan-receipt</b> is deployed.",
   missing_key: "The function runs, but the <b>GEMINI_API_KEY</b> secret is missing. Add it under <b>Edge Functions → Secrets</b>, then test again.",
   bad_key: "Google says the API key isn't valid. Create a new key in Google AI Studio and replace the <b>GEMINI_API_KEY</b> secret.",
-  busy: "Gemini's free limit is used up for now. It resets on its own; try again later.",
+  busy: "Your setup is working: the request reached Google. But every Gemini model was busy or at its free limit at that moment. This is temporary on Google's side; try again in a minute.",
   401: "Supabase refused the request (401). Make sure the function's <b>Verify JWT</b> setting is on and the tool uses the project's anon key.",
   no_model: "None of the Gemini model names worked. Google may have renamed them; add a <b>GEMINI_MODEL</b> secret with a current Flash model name from AI Studio.",
 };
@@ -340,7 +340,7 @@ async function runAiTest(b64){
     return;
   }
   const key = data && data.error;
-  const help = AI_HELP[key] || AI_HELP[res.status] || 'Something went wrong. The details below show what Gemini or Supabase answered.';
+  const help = (data && data.status === 503 ? AI_HELP.busy : '') || AI_HELP[key] || AI_HELP[res.status] || 'Something went wrong. The details below show what Gemini or Supabase answered.';
   out.innerHTML = `<p class="bad">✗ The AI reader isn't working yet (${esc(key || 'error ' + res.status)}).</p><p>${help}</p>
     ${text ? `<pre>${esc(text.slice(0, 800))}</pre>` : ''}`;
 }
